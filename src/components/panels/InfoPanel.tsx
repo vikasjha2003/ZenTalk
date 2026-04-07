@@ -289,7 +289,7 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
   return (
     <button onClick={() => onChange(!checked)}
       className={`relative h-6 w-10 flex-shrink-0 rounded-full transition-colors ${checked ? 'bg-primary' : 'bg-muted-foreground/30'}`}>
-      <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-4' : 'translate-x-0'}`} />
+      <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-[0.9rem]' : 'translate-x-0'}`} />
     </button>
   );
 }
@@ -416,9 +416,12 @@ export default function InfoPanel() {
 
         {/* Avatar + Name */}
         <div className="flex flex-col items-center py-5 px-4 border-b border-border flex-shrink-0">
-          <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center text-3xl mb-2">
-            {activeChat.avatar}
-          </div>
+          <UserAvatar
+            avatar={activeChat.avatar}
+            name={activeChat.name}
+            className="mb-2 h-16 w-16 text-3xl"
+            fallbackClassName="bg-primary/10 text-3xl"
+          />
           {editingName && group ? (
             <div className="flex items-center gap-2">
               <input value={newName} onChange={e => setNewName(e.target.value)}
