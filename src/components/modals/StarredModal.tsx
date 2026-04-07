@@ -1,6 +1,7 @@
 import { useApp } from '@/contexts/AppContext';
 import { X, Star } from 'lucide-react';
 import * as store from '@/lib/zentalk-store';
+import UserAvatar from '@/components/ui/user-avatar';
 
 export default function StarredModal() {
   const { setShowStarred, starredIds, allUsers, chats, setActiveChat, toggleStar } = useApp();
@@ -46,9 +47,12 @@ export default function StarredModal() {
             return (
               <div key={msg.id} className="px-4 py-3 border-b border-border hover:bg-muted/60 transition-colors">
                 <div className="flex items-start gap-3">
-                  <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-lg flex-shrink-0">
-                    {sender?.avatar || '?'}
-                  </div>
+                  <UserAvatar
+                    avatar={sender?.avatar || '?'}
+                    name={sender?.name}
+                    className="h-9 w-9 flex-shrink-0 text-lg"
+                    fallbackClassName="bg-primary/10 text-lg"
+                  />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2 mb-1">
                       <span className="text-xs font-semibold text-primary">{sender?.name}</span>
