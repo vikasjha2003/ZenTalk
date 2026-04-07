@@ -13,6 +13,7 @@ import {
   sendDirectMessageOnApi,
   signupWithApi,
   updateProfileOnApi,
+  verifySignupOtpWithApi,
 } from '@/lib/api-client';
 import { createPeerConnection, getLocalStream, setAudioEnabled, setVideoEnabled, stopStream } from '@/lib/webrtc';
 
@@ -80,7 +81,27 @@ interface ParticipantLeftPayload {
   userId: string;
 }
 
-const SIGNALING_SERVER_URL = import.meta.env.VITE_SIGNALING_SERVER_URL ?? 'http://localhost:3001';
+function resolveSignalingServerUrl() {
+  const configured = import.meta.env.VITE_SIGNALING_SERVER_URL;
+  if (typeof window === 'undefined') return configured ?? 'http://localhost:3001';
+
+  const fallback = `${window.location.protocol}//${window.location.hostname}:3001`;
+  if (!configured) return fallback;
+
+  try {
+    const url = new URL(configured);
+    if ((url.hostname === 'localhost' || url.hostname === '127.0.0.1') && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      url.hostname = window.location.hostname;
+      return url.toString().replace(/\/$/, '');
+    }
+  } catch {
+    return fallback;
+  }
+
+  return configured;
+}
+
+const SIGNALING_SERVER_URL = resolveSignalingServerUrl();
 const APP_NOTIFICATION_ICON = '/favicon.ico';
 
 const createDefaultCallControls = (type: CallType = 'audio'): ZenCallControls => ({
@@ -161,7 +182,8 @@ interface AppContextType {
   // Auth
   currentUser: ZenUser | null;
   login: (emailOrUsername: string, password: string) => Promise<{ ok: boolean; message?: string }>;
-  signup: (data: Partial<ZenUser>) => Promise<{ ok: boolean; message?: string }>;
+  signup: (data: Partial<ZenUser>) => Promise<{ ok: boolean; message?: string; requestId?: string }>;
+  verifySignupOtp: (requestId: string, otp: string) => Promise<{ ok: boolean; message?: string }>;
   logout: () => void;
   updateProfile: (patch: Partial<ZenUser>) => void;
   toggleBlockedUser: (userId: string) => void;
@@ -1117,24 +1139,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       hydrateBackendState(payload);
       return { ok: true };
     } catch (error) {
-      store.initMockData();
-      const users = store.getUsers();
-      const user = users.find(u =>
-        (u.email === emailOrUsername || u.username === emailOrUsername) && u.password === password
-      );
-      if (!user) {
-        return { ok: false, message: error instanceof Error ? error.message : 'Invalid email/username or password.' };
-      }
-      store.setSession({ userId: user.id, loginAt: Date.now() });
-      store.updateUser(user.id, { status: 'online', lastSeen: Date.now() });
-      setCurrentUser({ ...user, status: 'online' });
-      setAllUsers(store.getUsers());
-      setBackendMode(false);
-      return { ok: true };
+      return { ok: false, message: error instanceof Error ? error.message : 'Unable to sign in.' };
     }
   }, [hydrateBackendState]);
 
-  const signup = useCallback(async (data: Partial<ZenUser>): Promise<{ ok: boolean; message?: string }> => {
+  const signup = useCallback(async (data: Partial<ZenUser>): Promise<{ ok: boolean; message?: string; requestId?: string }> => {
     try {
       const payload = await signupWithApi({
         name: data.name || '',
@@ -1144,33 +1153,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         password: data.password || '',
         avatar: data.avatar || '🧑',
       });
-      hydrateBackendState(payload);
-      return { ok: true };
+      return { ok: true, requestId: payload.requestId, message: payload.message };
     } catch (error) {
-      const users = store.getUsers();
-      if (users.find(u => u.email === data.email || u.username === data.username)) {
-        return { ok: false, message: error instanceof Error ? error.message : 'Email or username already taken.' };
-      }
-      const newUser: ZenUser = {
-        id: store.genId(),
-        name: data.name || '',
-        username: data.username || '',
-        email: data.email || '',
-        mobile: data.mobile || '',
-        password: data.password || '',
-        avatar: data.avatar || '🧑',
-        bio: 'Hey there! I am using ZenTalk.',
-        blockedUserIds: [],
-        status: 'online',
-        lastSeen: Date.now(),
-        createdAt: Date.now(),
-      };
-      store.addUser(newUser);
-      store.setSession({ userId: newUser.id, loginAt: Date.now() });
-      setCurrentUser(newUser);
-      setAllUsers(store.getUsers());
-      setBackendMode(false);
-      return { ok: true };
+      return { ok: false, message: error instanceof Error ? error.message : 'Unable to create account.' };
+    }
+  }, []);
+
+  const verifySignupOtp = useCallback(async (requestId: string, otp: string): Promise<{ ok: boolean; message?: string }> => {
+    try {
+      const payload = await verifySignupOtpWithApi({ requestId, otp });
+      hydrateBackendState(payload);
+      return { ok: true, message: payload.message };
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : 'Unable to verify the code.' };
     }
   }, [hydrateBackendState]);
 
@@ -1900,7 +1895,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [emitCallControls, syncLocalTrackState]);
 
   const value: AppContextType = {
-    currentUser, login, signup, logout, updateProfile, toggleBlockedUser, isUserBlocked,
+    currentUser, login, signup, verifySignupOtp, logout, updateProfile, toggleBlockedUser, isUserBlocked,
     theme, toggleTheme,
     chats, activeChat, setActiveChat, refreshChats,
     messages, sendMessage, editMessage, deleteMessage, deleteMessageForEveryone, forwardMessage, toggleStar, refreshMessages,
