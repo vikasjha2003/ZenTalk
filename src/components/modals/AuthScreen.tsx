@@ -15,21 +15,21 @@ export default function AuthScreen() {
 
   const avatarOptions = ['🧑', '👩', '👨', '🧔', '👩‍💼', '👨‍💼', '🧑‍💻', '👩‍🎨', '🦸', '🧙', '🧝', '🧛'];
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    const ok = login(loginForm.emailOrUsername, loginForm.password);
-    if (!ok) setError('Invalid email/username or password. Try demo@zentalk.app / demo123');
+    const ok = await login(loginForm.emailOrUsername, loginForm.password);
+    if (!ok) setError('Invalid email/username or password.');
   };
 
-  const handleSignup = (e: React.FormEvent) => {
+  const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     if (!signupForm.name || !signupForm.username || !signupForm.email || !signupForm.password) {
       setError('Please fill in all required fields'); return;
     }
     if (signupForm.password.length < 6) { setError('Password must be at least 6 characters'); return; }
-    const ok = signup(signupForm);
+    const ok = await signup(signupForm);
     if (!ok) setError('Email or username already taken');
   };
 
@@ -105,7 +105,7 @@ export default function AuthScreen() {
                   </button>
                   <div className="p-3 rounded-xl bg-muted/60 border border-border">
                     <p className="text-xs text-muted-foreground text-center">
-                      Demo account: <span className="font-mono text-primary font-medium">demo@zentalk.app</span> / <span className="font-mono text-primary font-medium">demo123</span>
+                      Sign in with one of the existing MongoDB users to use live chat and calling.
                     </p>
                   </div>
                 </form>

@@ -6,6 +6,14 @@ import type {
   MemberPermissions, RoleLabels, UserRole
 } from '@/lib/zentalk-types';
 import * as store from '@/lib/zentalk-store';
+import {
+  fetchBootstrap,
+  loginWithApi,
+  logoutFromApi,
+  sendDirectMessageOnApi,
+  signupWithApi,
+  updateProfileOnApi,
+} from '@/lib/api-client';
 import { createPeerConnection, getLocalStream, setAudioEnabled, setVideoEnabled, stopStream } from '@/lib/webrtc';
 
 interface Toast {
@@ -152,8 +160,8 @@ const syncCommunityChannelParticipants = (communityId: string, participantIds: s
 interface AppContextType {
   // Auth
   currentUser: ZenUser | null;
-  login: (emailOrUsername: string, password: string) => boolean;
-  signup: (data: Partial<ZenUser>) => boolean;
+  login: (emailOrUsername: string, password: string) => Promise<boolean>;
+  signup: (data: Partial<ZenUser>) => Promise<boolean>;
   logout: () => void;
   updateProfile: (patch: Partial<ZenUser>) => void;
   toggleBlockedUser: (userId: string) => void;
@@ -319,6 +327,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [typingChats, setTypingChats] = useState<Set<string>>(new Set());
   const [starredIds, setStarredIds] = useState<string[]>([]);
   const [allUsers, setAllUsers] = useState<ZenUser[]>([]);
+  const [backendMode, setBackendMode] = useState(false);
   const callTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [callDuration, setCallDuration] = useState(0);
   const socketRef = useRef<Socket | null>(null);
@@ -330,10 +339,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const activeCallRef = useRef<ZenCall | null>(null);
   const incomingCallRef = useRef<ZenCall | null>(null);
   const currentUserRef = useRef<ZenUser | null>(null);
+  const activeChatRef = useRef<ZenChat | null>(null);
+  const backendModeRef = useRef(false);
 
   useEffect(() => {
     currentUserRef.current = currentUser;
   }, [currentUser]);
+
+  useEffect(() => {
+    activeChatRef.current = activeChat;
+  }, [activeChat]);
+
+  useEffect(() => {
+    backendModeRef.current = backendMode;
+  }, [backendMode]);
 
   useEffect(() => {
     activeCallRef.current = activeCall;
@@ -343,32 +362,90 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     incomingCallRef.current = incomingCall;
   }, [incomingCall]);
 
+  const hydrateBackendState = useCallback((payload: {
+    currentUser: ZenUser;
+    users: ZenUser[];
+    chats: ZenChat[];
+    messagesByChat: Record<string, ZenMessage[]>;
+    groups: ZenGroup[];
+    communities: ZenCommunity[];
+    contacts: ZenContact[];
+  }) => {
+    store.setUsers(payload.users);
+    store.setChats(payload.chats);
+    Object.entries(payload.messagesByChat).forEach(([chatId, chatMessages]) => {
+      store.setMessages(chatId, chatMessages);
+    });
+    store.setGroups(payload.groups);
+    store.setCommunities(payload.communities);
+    store.setContacts(payload.contacts);
+    store.setSession({ userId: payload.currentUser.id, loginAt: Date.now() });
+    setCurrentUser(payload.currentUser);
+    setAllUsers(payload.users);
+    setChats(payload.chats);
+    setGroups(payload.groups);
+    setCommunities(payload.communities);
+    setContacts(payload.contacts);
+    setMessages([]);
+    setBackendMode(true);
+  }, []);
+
   // Init
   useEffect(() => {
-    store.initMockData();
-    const existingUsers = store.getUsers();
-    const renamedDemoUser = existingUsers.find(user => user.id === 'user-demo' && user.name === 'You (Demo)');
-    if (renamedDemoUser) {
-      store.updateUser('user-demo', { name: 'You' });
-    }
-    const session = store.getSession();
-    if (session) {
-      const user = store.getUserById(session.userId);
-      if (user) {
-        setCurrentUser(user);
-        store.updateUser(user.id, { status: 'online', lastSeen: Date.now() });
+    let cancelled = false;
+
+    const initialize = async () => {
+      const s = store.getSettings();
+      if (!cancelled) {
+        setSettingsState(s);
+        const savedTheme = s.theme === 'system'
+          ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+          : s.theme;
+        setTheme(savedTheme);
+        setStarredIds(store.getStarred());
+        setCallShortcuts(store.getCallShortcuts());
       }
-    }
-    const s = store.getSettings();
-    setSettingsState(s);
-    const savedTheme = s.theme === 'system'
-      ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
-      : s.theme;
-    setTheme(savedTheme);
-    setAllUsers(store.getUsers());
-    setStarredIds(store.getStarred());
-    setCallShortcuts(store.getCallShortcuts());
-  }, []);
+
+      const session = store.getSession();
+      if (session?.userId) {
+        try {
+          const bootstrap = await fetchBootstrap(session.userId);
+          if (!cancelled) {
+            hydrateBackendState(bootstrap);
+          }
+          return;
+        } catch {
+          // Fall back to local mock data below when backend bootstrap is unavailable.
+        }
+      }
+
+      store.initMockData();
+      const existingUsers = store.getUsers();
+      const renamedDemoUser = existingUsers.find(user => user.id === 'user-demo' && user.name === 'You (Demo)');
+      if (renamedDemoUser) {
+        store.updateUser('user-demo', { name: 'You' });
+      }
+
+      if (session) {
+        const user = store.getUserById(session.userId);
+        if (user && !cancelled) {
+          setCurrentUser(user);
+          store.updateUser(user.id, { status: 'online', lastSeen: Date.now() });
+        }
+      }
+
+      if (!cancelled) {
+        setAllUsers(store.getUsers());
+        setBackendMode(false);
+      }
+    };
+
+    void initialize();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrateBackendState]);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
@@ -903,6 +980,52 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       finishCallLocally(activeCallRef.current?.type ?? 'audio');
     };
 
+    const handleRealtimeMessage = (payload: { chat: ZenChat; message: ZenMessage }) => {
+      const activeUser = currentUserRef.current;
+      if (!activeUser) return;
+
+      const existingChat = store.getChatById(payload.chat.id);
+      const nextUnreadCount = payload.message.senderId === activeUser.id || activeChatRef.current?.id === payload.chat.id
+        ? 0
+        : (existingChat?.unreadCount ?? 0) + 1;
+
+      if (existingChat) {
+        store.updateChat(payload.chat.id, {
+          ...payload.chat,
+          unreadCount: nextUnreadCount,
+          lastMessage: payload.chat.lastMessage || payload.message.text,
+          lastTime: payload.chat.lastTime || payload.message.timestamp,
+        });
+      } else {
+        store.addChat({
+          ...payload.chat,
+          unreadCount: nextUnreadCount,
+        });
+      }
+
+      const currentMessages = store.getMessages(payload.chat.id);
+      if (!currentMessages.some(message => message.id === payload.message.id)) {
+        store.addMessage(payload.message);
+      }
+
+      setChats(store.getChats());
+      if (activeChatRef.current?.id === payload.chat.id) {
+        setMessages(store.getMessages(payload.chat.id));
+      }
+
+      if (payload.message.senderId !== activeUser.id) {
+        const sender = store.getUserById(payload.message.senderId);
+        addToast({
+          title: sender?.name || payload.chat.name,
+          message: payload.message.text || (payload.message.type === 'audio' ? 'Voice message' : 'New attachment'),
+          avatar: sender?.avatar || payload.chat.avatar,
+          chatId: payload.chat.id,
+          kind: 'message',
+          accent: 'from-primary/20 to-primary/5',
+        });
+      }
+    };
+
     socket.on('connect', registerCurrentUser);
     socket.on('incoming-call', handleIncomingCall);
     socket.on('participant-joined', handleParticipantJoined);
@@ -914,6 +1037,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     socket.on('call-rejected', handleCallRejected);
     socket.on('call-control-updated', handleRemoteControls);
     socket.on('call-failed', handleCallFailed);
+    socket.on('message-created', handleRealtimeMessage);
 
     return () => {
       socket.off('connect', registerCurrentUser);
@@ -927,6 +1051,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       socket.off('call-rejected', handleCallRejected);
       socket.off('call-control-updated', handleRemoteControls);
       socket.off('call-failed', handleCallFailed);
+      socket.off('message-created', handleRealtimeMessage);
       socket.disconnect();
       if (socketRef.current === socket) socketRef.current = null;
     };
@@ -934,7 +1059,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Simulate incoming messages
   useEffect(() => {
-    if (!currentUser) return;
+    if (!currentUser || backendMode) return;
     const interval = setInterval(() => {
       const chatsData = store.getChats();
       const otherChats = chatsData.filter(c => c.id !== activeChat?.id && !c.muted);
@@ -973,7 +1098,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       });
     }, 18000);
     return () => clearInterval(interval);
-  }, [currentUser, activeChat, addToast]);
+  }, [backendMode, currentUser, activeChat, addToast]);
 
   const simulateTyping = useCallback((chatId: string) => {
     setTypingChats(prev => new Set([...prev, chatId]));
@@ -983,51 +1108,82 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // Auth
-  const login = useCallback((emailOrUsername: string, password: string): boolean => {
-    const users = store.getUsers();
-    const user = users.find(u =>
-      (u.email === emailOrUsername || u.username === emailOrUsername) && u.password === password
-    );
-    if (!user) return false;
-    store.setSession({ userId: user.id, loginAt: Date.now() });
-    store.updateUser(user.id, { status: 'online', lastSeen: Date.now() });
-    setCurrentUser({ ...user, status: 'online' });
-    setAllUsers(store.getUsers());
-    return true;
-  }, []);
+  const login = useCallback(async (emailOrUsername: string, password: string): Promise<boolean> => {
+    try {
+      const payload = await loginWithApi(emailOrUsername, password);
+      hydrateBackendState(payload);
+      return true;
+    } catch {
+      store.initMockData();
+      const users = store.getUsers();
+      const user = users.find(u =>
+        (u.email === emailOrUsername || u.username === emailOrUsername) && u.password === password
+      );
+      if (!user) return false;
+      store.setSession({ userId: user.id, loginAt: Date.now() });
+      store.updateUser(user.id, { status: 'online', lastSeen: Date.now() });
+      setCurrentUser({ ...user, status: 'online' });
+      setAllUsers(store.getUsers());
+      setBackendMode(false);
+      return true;
+    }
+  }, [hydrateBackendState]);
 
-  const signup = useCallback((data: Partial<ZenUser>): boolean => {
-    const users = store.getUsers();
-    if (users.find(u => u.email === data.email || u.username === data.username)) return false;
-    const newUser: ZenUser = {
-      id: store.genId(),
-      name: data.name || '',
-      username: data.username || '',
-      email: data.email || '',
-      mobile: data.mobile || '',
-      password: data.password || '',
-      avatar: data.avatar || '🧑',
-      bio: 'Hey there! I am using ZenTalk.',
-      blockedUserIds: [],
-      status: 'online',
-      lastSeen: Date.now(),
-      createdAt: Date.now(),
-    };
-    store.addUser(newUser);
-    store.setSession({ userId: newUser.id, loginAt: Date.now() });
-    setCurrentUser(newUser);
-    setAllUsers(store.getUsers());
-    return true;
-  }, []);
+  const signup = useCallback(async (data: Partial<ZenUser>): Promise<boolean> => {
+    try {
+      const payload = await signupWithApi({
+        name: data.name || '',
+        username: data.username || '',
+        email: data.email || '',
+        mobile: data.mobile || '',
+        password: data.password || '',
+        avatar: data.avatar || '🧑',
+      });
+      hydrateBackendState(payload);
+      return true;
+    } catch {
+      const users = store.getUsers();
+      if (users.find(u => u.email === data.email || u.username === data.username)) return false;
+      const newUser: ZenUser = {
+        id: store.genId(),
+        name: data.name || '',
+        username: data.username || '',
+        email: data.email || '',
+        mobile: data.mobile || '',
+        password: data.password || '',
+        avatar: data.avatar || '🧑',
+        bio: 'Hey there! I am using ZenTalk.',
+        blockedUserIds: [],
+        status: 'online',
+        lastSeen: Date.now(),
+        createdAt: Date.now(),
+      };
+      store.addUser(newUser);
+      store.setSession({ userId: newUser.id, loginAt: Date.now() });
+      setCurrentUser(newUser);
+      setAllUsers(store.getUsers());
+      setBackendMode(false);
+      return true;
+    }
+  }, [hydrateBackendState]);
 
   const logout = useCallback(() => {
-    if (currentUser) store.updateUser(currentUser.id, { status: 'offline', lastSeen: Date.now() });
+    if (currentUser) {
+      store.updateUser(currentUser.id, { status: 'offline', lastSeen: Date.now() });
+      if (backendModeRef.current) {
+        void logoutFromApi(currentUser.id);
+      }
+    }
     finishCallLocally(activeCallRef.current?.type ?? incomingCallRef.current?.type ?? 'audio');
     store.clearSession();
     setCurrentUser(null);
     setActiveChatState(null);
     setMessages([]);
     setChats([]);
+    setGroups([]);
+    setCommunities([]);
+    setContacts([]);
+    setBackendMode(false);
   }, [currentUser, finishCallLocally]);
 
   const updateProfile = useCallback((patch: Partial<ZenUser>) => {
@@ -1036,6 +1192,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const updated = store.getUserById(currentUser.id)!;
     setCurrentUser(updated);
     setAllUsers(store.getUsers());
+    if (backendModeRef.current) {
+      void updateProfileOnApi(currentUser.id, patch).then(response => {
+        store.updateUser(currentUser.id, response.user);
+        setCurrentUser(response.user);
+        setAllUsers(store.getUsers());
+      }).catch(() => {});
+    }
   }, [currentUser]);
 
   const isUserBlocked = useCallback((userId: string) => {
@@ -1070,6 +1233,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (activeChat.type === 'dm') {
       const otherUserId = activeChat.participants.find(id => id !== currentUser.id);
       if (otherUserId && (currentUser.blockedUserIds ?? []).includes(otherUserId)) return;
+      if (backendModeRef.current && otherUserId) {
+        void sendDirectMessageOnApi({
+          fromUserId: currentUser.id,
+          toUserId: otherUserId,
+          text,
+          replyTo,
+          mediaUrl,
+          type: type as ZenMessage['type'],
+        }).then(({ chat, message }) => {
+          const existingTempChatId = activeChatRef.current?.id;
+          const currentMessages = store.getMessages(chat.id);
+          if (!currentMessages.some(existingMessage => existingMessage.id === message.id)) {
+            store.setMessages(chat.id, [...currentMessages, message]);
+          }
+          const knownChat = store.getChatById(chat.id);
+          if (knownChat) {
+            store.updateChat(chat.id, chat);
+          } else {
+            if (existingTempChatId?.startsWith('chat-dm-') && existingTempChatId !== chat.id) {
+              store.deleteChat(existingTempChatId);
+            }
+            store.addChat(chat);
+          }
+          setChats(store.getChats());
+          setActiveChat(chat);
+          setMessages(store.getMessages(chat.id));
+        }).catch(error => {
+          setCallError(error.message);
+        });
+        return;
+      }
     }
     const msg: ZenMessage = {
       id: store.genId(), chatId: activeChat.id, senderId: currentUser.id,
