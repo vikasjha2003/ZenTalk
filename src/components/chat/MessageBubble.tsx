@@ -6,6 +6,7 @@ import {
   Copy, Star, StarOff, Download, FileText, Play, Pause, Volume2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import UserAvatar from '@/components/ui/user-avatar';
 
 interface Props {
   message: ZenMessage;
@@ -229,9 +230,12 @@ export default function MessageBubble({ message, isOwn, onReply, onForward, onEd
       >
         {/* Avatar for received */}
         {!isOwn && (
-          <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-sm mr-2 mt-auto mb-1 flex-shrink-0">
-            {sender?.avatar || '?'}
-          </div>
+          <UserAvatar
+            avatar={sender?.avatar || '?'}
+            name={sender?.name}
+            className="mr-2 mb-1 mt-auto h-7 w-7 flex-shrink-0 text-sm"
+            fallbackClassName="bg-primary/10 text-sm"
+          />
         )}
 
         <div className={`max-w-[70%] flex flex-col ${isOwn ? 'items-end' : 'items-start'}`}>
