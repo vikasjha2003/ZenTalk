@@ -72,7 +72,7 @@ function ForwardModal({ message, onClose }: { message: ZenMessage; onClose: () =
 }
 
 export default function ChatWindow() {
-  const { activeChat, messages, currentUser, inChatSearch } = useApp();
+  const { activeChat, messages, currentUser, inChatSearch, inChatSearchDate } = useApp();
   const [replyTo, setReplyTo] = useState<ZenMessage | null>(null);
   const [editingMsg, setEditingMsg] = useState<ZenMessage | null>(null);
   const [forwardMsg, setForwardMsg] = useState<ZenMessage | null>(null);
@@ -87,6 +87,17 @@ export default function ChatWindow() {
     setReplyTo(null);
     setEditingMsg(null);
   }, [activeChat?.id]);
+
+  const matchesSelectedDate = (timestamp: number, selectedDate: string) => {
+    if (!selectedDate) return true;
+    const messageDate = new Date(timestamp);
+    const [year, month, day] = selectedDate.split('-').map(Number);
+    return (
+      messageDate.getFullYear() === year &&
+      messageDate.getMonth() === month - 1 &&
+      messageDate.getDate() === day
+    );
+  };
 
   if (!activeChat) {
     return (
@@ -116,8 +127,11 @@ export default function ChatWindow() {
   // Filter messages
   const visibleMessages = messages.filter(m => {
     if (m.deletedFor.includes(currentUser?.id || '')) return false;
-    if (inChatSearch) return m.text.toLowerCase().includes(inChatSearch.toLowerCase());
-    return true;
+    const matchesKeyword = inChatSearch
+      ? m.text.toLowerCase().includes(inChatSearch.toLowerCase())
+      : true;
+    const matchesDate = matchesSelectedDate(m.timestamp, inChatSearchDate);
+    return matchesKeyword && matchesDate;
   });
 
   // Group by date
@@ -129,7 +143,15 @@ export default function ChatWindow() {
     else last.messages.push(msg);
   });
 
-  const wallpaperStyle = activeChat.wallpaper ? { backgroundColor: activeChat.wallpaper } : {};
+  const messageCanvasStyle = activeChat.wallpaper
+    ? {
+        background: activeChat.wallpaper,
+        backgroundAttachment: 'local',
+        backgroundRepeat: activeChat.wallpaper.includes('url(') ? 'no-repeat' : undefined,
+        backgroundSize: activeChat.wallpaper.includes('url(') ? 'cover' : undefined,
+        backgroundPosition: activeChat.wallpaper.includes('url(') ? 'center' : undefined,
+      }
+    : undefined;
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -138,17 +160,19 @@ export default function ChatWindow() {
       {/* Messages */}
       <div
         ref={containerRef}
-        className="flex-1 overflow-y-auto py-2"
-        style={{ background: activeChat.wallpaper ? activeChat.wallpaper : undefined }}
+        className="zentalk-chat-canvas relative flex-1 overflow-y-auto transition-colors duration-300"
       >
+        <div className="relative min-h-full py-2" style={messageCanvasStyle}>
+        <div className="zentalk-chat-doodles pointer-events-none absolute inset-0" />
+        <div className="relative">
         {visibleMessages.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full text-center p-8">
+          <div className="flex h-full min-h-[320px] flex-col items-center justify-center text-center p-8">
             <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4 text-3xl">
               {activeChat.avatar}
             </div>
             <p className="font-semibold text-foreground">{activeChat.name}</p>
             <p className="text-sm text-muted-foreground mt-1">
-              {inChatSearch ? 'No messages match your search' : 'No messages yet. Say hello! 👋'}
+              {(inChatSearch || inChatSearchDate) ? 'No messages match your search' : 'No messages yet. Say hello! 👋'}
             </p>
           </div>
         )}
@@ -170,6 +194,8 @@ export default function ChatWindow() {
           </div>
         ))}
         <div ref={bottomRef} />
+        </div>
+        </div>
       </div>
 
       <ChatInput

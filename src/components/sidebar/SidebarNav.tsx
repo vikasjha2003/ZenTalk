@@ -3,10 +3,11 @@ import { useApp } from '@/contexts/AppContext';
 import {
   MessageCircle, Users, Globe, Phone, Search, Plus, MoreVertical,
   Settings, Star, Archive, LogOut, Moon, Sun, UserPlus,
-  Pin, PinOff, Trash2, VolumeX, Volume2, Hash, Megaphone, Clock
+  Pin, PinOff, Trash2, VolumeX, Volume2, Hash, Megaphone, Clock, Video, UserRoundPlus
 } from 'lucide-react';
 import type { ZenChat } from '@/lib/zentalk-types';
 import * as store from '@/lib/zentalk-store';
+import UserAvatar from '@/components/ui/user-avatar';
 
 function formatTime(ts: number): string {
   const now = Date.now();
@@ -19,16 +20,9 @@ function formatTime(ts: number): string {
 }
 
 function Avatar({ src, size = 'md', online }: { src: string; size?: 'sm' | 'md' | 'lg'; online?: boolean }) {
-  const sizes = { sm: 'w-8 h-8 text-base', md: 'w-11 h-11 text-xl', lg: 'w-14 h-14 text-2xl' };
+  const sizes = { sm: 'h-8 w-8 text-base', md: 'h-11 w-11 text-xl', lg: 'h-14 w-14 text-2xl' };
   return (
-    <div className="relative flex-shrink-0">
-      <div className={`${sizes[size]} rounded-full bg-primary/10 flex items-center justify-center font-medium select-none`}>
-        {src}
-      </div>
-      {online !== undefined && (
-        <span className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-card ${online ? 'bg-[#25D366]' : 'bg-muted-foreground'}`} />
-      )}
-    </div>
+    <UserAvatar avatar={src} className={sizes[size]} fallbackClassName="bg-primary/10 font-medium" online={online} />
   );
 }
 
@@ -85,13 +79,17 @@ export default function SidebarNav() {
   const {
     currentUser, chats, activeChat, setActiveChat, sidebarTab, setSidebarTab,
     theme, toggleTheme, setShowSettings, setShowContacts, setShowCreateGroup,
-    setShowCreateCommunity, setShowStarred, logout, communities,
+    setShowCreateCommunity, setShowStarred, logout, communities, groups,
     searchQuery, setSearchQuery, refreshChats, startChatWithUser, allUsers,
+    callShortcuts, saveCallShortcut, deleteCallShortcut, startDirectCallByUserId, startGroupCall,
   } = useApp();
 
   const [showMenu, setShowMenu] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; chat: ZenChat } | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [dialLabel, setDialLabel] = useState('');
+  const [dialNumber, setDialNumber] = useState('');
+  const [dialError, setDialError] = useState('');
   const menuRef = useRef<HTMLDivElement>(null);
 
   const visibleChats = chats.filter(c => {
@@ -125,20 +123,33 @@ export default function SidebarNav() {
   const groupChats = chats.filter(c => c.type === 'group');
   const communityChats = chats.filter(c => c.type === 'channel');
 
-  const callHistory = [
-    { id: '1', name: 'Alice Chen', avatar: '👩', type: 'video', time: Date.now() - 3600000, missed: false },
-    { id: '2', name: 'Bob Martinez', avatar: '👨', type: 'audio', time: Date.now() - 86400000, missed: true },
-    { id: '3', name: 'Team ZenTalk', avatar: '👥', type: 'video', time: Date.now() - 172800000, missed: false },
-  ];
+  const quickDialEntries = callShortcuts.map(entry => ({
+    ...entry,
+    user: entry.userId ? allUsers.find(user => user.id === entry.userId) : null,
+  }));
+
+  const handleSaveShortcut = () => {
+    const result = saveCallShortcut(dialLabel, dialNumber);
+    if (!result.ok) {
+      setDialError(result.message || 'Could not save this number.');
+      return;
+    }
+    setDialLabel('');
+    setDialNumber('');
+    setDialError('');
+  };
 
   return (
     <div className="flex flex-col h-full bg-card border-r border-border">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 bg-card border-b border-border">
         <button onClick={() => setShowSettings(true)} className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-          <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-lg">
-            {currentUser?.avatar}
-          </div>
+          <UserAvatar
+            avatar={currentUser?.avatar}
+            name={currentUser?.name}
+            className="h-9 w-9 text-lg"
+            fallbackClassName="bg-primary/10 text-lg"
+          />
         </button>
         <div className="flex items-center gap-1">
           <button onClick={() => setShowStarred(true)}
@@ -259,7 +270,12 @@ export default function SidebarNav() {
                 ).map(u => (
                   <button key={u.id} onClick={() => { startChatWithUser(u.id); setSearchQuery(''); }}
                     className="w-full flex items-center gap-3 py-2 hover:bg-muted/60 rounded-lg px-2 transition-colors">
-                    <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-lg">{u.avatar}</div>
+                    <UserAvatar
+                      avatar={u.avatar}
+                      name={u.name}
+                      className="h-9 w-9 text-lg"
+                      fallbackClassName="bg-primary/10 text-lg"
+                    />
                     <div className="text-left">
                       <p className="text-sm font-medium text-foreground">{u.name}</p>
                       <p className="text-xs text-muted-foreground">@{u.username}</p>
@@ -341,27 +357,137 @@ export default function SidebarNav() {
         )}
 
         {sidebarTab === 'calls' && (
-          <div className="p-2">
-            <button className="w-full flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary/10 text-primary text-sm font-medium hover:bg-primary/20 transition-colors mb-3">
-              <Plus className="w-4 h-4" /> New Call
-            </button>
-            {callHistory.map(call => (
-              <div key={call.id} className="flex items-center gap-3 px-4 py-3 hover:bg-muted/60 rounded-xl transition-colors cursor-pointer">
-                <div className="w-11 h-11 rounded-full bg-primary/10 flex items-center justify-center text-xl">{call.avatar}</div>
-                <div className="flex-1">
-                  <p className="text-sm font-semibold text-foreground">{call.name}</p>
-                  <div className="flex items-center gap-1.5 mt-0.5">
-                    <span className={`text-xs ${call.missed ? 'text-destructive' : 'text-muted-foreground'}`}>
-                      {call.missed ? '↙ Missed' : '↗ Outgoing'} · {call.type}
-                    </span>
-                    <span className="text-xs text-muted-foreground">· {formatTime(call.time)}</span>
-                  </div>
-                </div>
-                <button className="w-8 h-8 rounded-full hover:bg-muted flex items-center justify-center text-primary">
-                  <Phone className="w-4 h-4" />
+          <div className="space-y-4 p-3">
+            <div className="rounded-2xl border border-border bg-background p-4">
+              <div className="mb-3 flex items-center gap-2">
+                <UserRoundPlus className="h-4 w-4 text-primary" />
+                <p className="text-sm font-semibold text-foreground">Quick Dial</p>
+              </div>
+              <div className="space-y-2">
+                <input
+                  value={dialLabel}
+                  onChange={e => setDialLabel(e.target.value)}
+                  placeholder="Contact label"
+                  className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                />
+                <input
+                  value={dialNumber}
+                  onChange={e => setDialNumber(e.target.value)}
+                  placeholder="Saved mobile number"
+                  className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                />
+                {dialError && <p className="text-xs text-destructive">{dialError}</p>}
+                <button
+                  onClick={handleSaveShortcut}
+                  className="w-full rounded-xl bg-primary/10 px-4 py-2.5 text-sm font-medium text-primary transition-colors hover:bg-primary/20"
+                >
+                  Save Number
                 </button>
               </div>
-            ))}
+            </div>
+
+            <div>
+              <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Saved Numbers</p>
+              <div className="space-y-2">
+                {quickDialEntries.length === 0 && (
+                  <div className="rounded-2xl border border-dashed border-border px-4 py-5 text-sm text-muted-foreground">
+                    Save a number here. If it matches a ZenTalk user, you can call them instantly from this panel.
+                  </div>
+                )}
+                {quickDialEntries.map(entry => (
+                  <div key={entry.id} className="rounded-2xl border border-border bg-background px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      <UserAvatar
+                        avatar={entry.user?.avatar || '📞'}
+                        name={entry.user?.name || entry.label}
+                        className="h-11 w-11 text-xl"
+                        fallbackClassName="bg-primary/10 text-xl"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-foreground">{entry.label}</p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {entry.phoneNumber}
+                          {entry.user ? ` · @${entry.user.username}` : ' · not linked to a ZenTalk user yet'}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => deleteCallShortcut(entry.id)}
+                        className="rounded-full p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-destructive"
+                        title="Delete saved number"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => { if (entry.userId) void startDirectCallByUserId(entry.userId, 'audio'); }}
+                        disabled={!entry.userId}
+                        className={`rounded-xl px-3 py-2 text-sm font-medium transition-colors ${
+                          entry.userId
+                            ? 'bg-primary text-white hover:bg-primary/90'
+                            : 'cursor-not-allowed bg-muted text-muted-foreground'
+                        }`}
+                      >
+                        Voice Call
+                      </button>
+                      <button
+                        onClick={() => { if (entry.userId) void startDirectCallByUserId(entry.userId, 'video'); }}
+                        disabled={!entry.userId}
+                        className={`rounded-xl px-3 py-2 text-sm font-medium transition-colors ${
+                          entry.userId
+                            ? 'bg-primary/10 text-primary hover:bg-primary/20'
+                            : 'cursor-not-allowed bg-muted text-muted-foreground'
+                        }`}
+                      >
+                        Video Call
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Group Calls</p>
+              <div className="space-y-2">
+                {groupChats.length === 0 && (
+                  <div className="rounded-2xl border border-dashed border-border px-4 py-5 text-sm text-muted-foreground">
+                    Create or join a group to start a multi-member call.
+                  </div>
+                )}
+                {groupChats.map(chat => {
+                  const group = groups.find(item => item.id === chat.groupId);
+                  const memberCount = group?.members.length ?? chat.participants.length;
+                  return (
+                    <div key={chat.id} className="rounded-2xl border border-border bg-background px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-11 w-11 items-center justify-center rounded-full bg-primary/10 text-xl">
+                          {chat.avatar}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-semibold text-foreground">{chat.name}</p>
+                          <p className="text-xs text-muted-foreground">{memberCount} members available for a live call</p>
+                        </div>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        <button
+                          onClick={() => void startGroupCall(chat.id, 'audio')}
+                          className="rounded-xl bg-primary px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-primary/90"
+                        >
+                          <span className="inline-flex items-center gap-2"><Phone className="h-4 w-4" /> Voice Room</span>
+                        </button>
+                        <button
+                          onClick={() => void startGroupCall(chat.id, 'video')}
+                          className="rounded-xl bg-primary/10 px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/20"
+                        >
+                          <span className="inline-flex items-center gap-2"><Video className="h-4 w-4" /> Video Room</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         )}
       </div>

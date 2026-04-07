@@ -3,7 +3,7 @@ export type MessageStatus = 'sending' | 'sent' | 'delivered' | 'read';
 export type MessageType = 'text' | 'image' | 'video' | 'document' | 'audio';
 export type ChatType = 'dm' | 'group' | 'channel';
 export type CallType = 'audio' | 'video';
-export type CallStatus = 'incoming' | 'active' | 'ended';
+export type CallStatus = 'calling' | 'incoming' | 'active' | 'ended' | 'rejected' | 'missed';
 export type DisappearTimer = 'off' | '24h' | '7d' | '90d';
 
 export interface ZenUser {
@@ -15,6 +15,7 @@ export interface ZenUser {
   password: string;
   avatar: string; // emoji or data URL
   bio: string;
+  blockedUserIds: string[];
   status: 'online' | 'offline' | 'away';
   lastSeen: number;
   createdAt: number;
@@ -120,9 +121,18 @@ export interface ZenContact {
   addedAt: number;
 }
 
+export interface ZenCallShortcut {
+  id: string;
+  label: string;
+  phoneNumber: string;
+  userId?: string;
+  addedAt: number;
+}
+
 export interface ZenSettings {
   theme: 'light' | 'dark' | 'system';
   notifications: boolean;
+  systemNotifications: boolean;
   aiEnabled: boolean;
   language: string;
   lastSeenPrivacy: 'everyone' | 'contacts' | 'nobody';
@@ -135,11 +145,30 @@ export interface ZenCall {
   chatId: string;
   callerId: string;
   receiverId: string;
+  participantIds: string[];
   type: CallType;
   status: CallStatus;
   startedAt?: number;
   endedAt?: number;
   duration?: number;
+}
+
+export interface ZenCallControls {
+  muted: boolean;
+  videoEnabled: boolean;
+  speakerEnabled: boolean;
+  hold: boolean;
+  canSwitchSpeaker: boolean;
+  connectionState: string;
+}
+
+export interface ZenRemoteParticipant {
+  userId: string;
+  stream: MediaStream | null;
+  connectionState: string;
+  muted: boolean;
+  videoEnabled: boolean;
+  hold: boolean;
 }
 
 export interface ZenSession {

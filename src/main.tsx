@@ -4,6 +4,14 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from './App';
 import './styles/globals.css';
 
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    void navigator.serviceWorker.register('/notification-sw.js').catch(error => {
+      console.warn('Notification service worker registration failed:', error);
+    });
+  });
+}
+
 // Add robots meta tag only in development mode
 if (import.meta.env.MODE === 'development') {
   const meta = document.createElement('meta');

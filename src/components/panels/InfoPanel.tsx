@@ -1,12 +1,24 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import type { MemberPermissions } from '@/lib/zentalk-types';
 import {
   X, Phone, Video, UserMinus, Shield, Crown, Edit2, Check, Trash2,
   Plus, Hash, Megaphone, Clock, Users, ChevronDown, ChevronRight,
-  MessageSquare, Settings2, UserCog
+  UserCog
 } from 'lucide-react';
 import * as store from '@/lib/zentalk-store';
+
+const CHAT_WALLPAPER_PRESETS = [
+  { id: 'default', label: 'Default', preview: 'linear-gradient(135deg, #f8fafc 0%, #eef2ff 100%)', value: '' },
+  { id: 'sage', label: 'Sage', preview: 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)', value: 'linear-gradient(135deg, rgba(220,252,231,0.9) 0%, rgba(187,247,208,0.92) 100%)' },
+  { id: 'ocean', label: 'Ocean', preview: 'linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)', value: 'linear-gradient(135deg, rgba(219,234,254,0.9) 0%, rgba(191,219,254,0.92) 100%)' },
+  { id: 'sunset', label: 'Sunset', preview: 'linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%)', value: 'linear-gradient(135deg, rgba(255,237,213,0.92) 0%, rgba(254,215,170,0.94) 100%)' },
+  { id: 'rose', label: 'Rose', preview: 'linear-gradient(135deg, #ffe4e6 0%, #fecdd3 100%)', value: 'linear-gradient(135deg, rgba(255,228,230,0.92) 0%, rgba(254,205,211,0.94) 100%)' },
+  { id: 'violet', label: 'Violet', preview: 'linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%)', value: 'linear-gradient(135deg, rgba(237,233,254,0.9) 0%, rgba(221,214,254,0.92) 100%)' },
+  { id: 'midnight', label: 'Midnight', preview: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', value: 'linear-gradient(135deg, rgba(15,23,42,0.96) 0%, rgba(30,41,59,0.95) 100%)' },
+  { id: 'forest', label: 'Forest', preview: 'linear-gradient(135deg, #052e16 0%, #166534 100%)', value: 'linear-gradient(135deg, rgba(5,46,22,0.96) 0%, rgba(22,101,52,0.95) 100%)' },
+  { id: 'aurora', label: 'Aurora', preview: 'linear-gradient(135deg, #082f49 0%, #164e63 50%, #083344 100%)', value: 'radial-gradient(circle at top left, rgba(34,211,238,0.16), transparent 35%), linear-gradient(135deg, rgba(8,47,73,0.98) 0%, rgba(22,78,99,0.97) 50%, rgba(8,51,68,0.98) 100%)' },
+];
 
 // ─── Add Channel Modal ────────────────────────────────────────────────────────
 function AddChannelModal({ communityId, onClose }: { communityId: string; onClose: () => void }) {
@@ -158,7 +170,7 @@ function PermRow({ label, checked, onChange, disabled }: { label: string; checke
 // ─── Main InfoPanel ───────────────────────────────────────────────────────────
 export default function InfoPanel() {
   const {
-    activeChat, setShowInfoPanel, allUsers, currentUser,
+    activeChat, setActiveChat, setShowInfoPanel, allUsers, currentUser,
     refreshGroups, refreshChats, startCall, leaveGroup, kickMember,
     communities, updateMemberPermissions, updateGroupMemberPermissions,
   } = useApp();
@@ -169,6 +181,7 @@ export default function InfoPanel() {
   const [showAddChannel, setShowAddChannel] = useState(false);
   const [showAddGroup, setShowAddGroup] = useState(false);
   const [activeTab, setActiveTab] = useState<'info' | 'members' | 'media'>('info');
+  const wallpaperInputRef = useRef<HTMLInputElement>(null);
 
   if (!activeChat) return null;
 
@@ -225,6 +238,26 @@ export default function InfoPanel() {
       members: community.members.map(m => m.userId === userId ? { ...m, role, permissions: defaultPerms } : m),
     });
     refreshChats();
+  };
+
+  const handleWallpaperChange = (wallpaper: string) => {
+    store.updateChat(activeChat.id, { wallpaper });
+    const updatedChat = store.getChatById(activeChat.id);
+    refreshChats();
+    if (updatedChat) setActiveChat(updatedChat);
+  };
+
+  const handleWallpaperUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result !== 'string') return;
+      handleWallpaperChange(`url(${reader.result}) center/cover no-repeat`);
+    };
+    reader.readAsDataURL(file);
+    event.target.value = '';
   };
 
   const tabs = [
@@ -324,6 +357,50 @@ export default function InfoPanel() {
                   <p className="text-sm text-foreground">{group.description}</p>
                 </div>
               )}
+
+              <div className="px-4 py-4 border-b border-border">
+                <div className="mb-3">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Chat Background</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Choose a separate wallpaper theme for this conversation.
+                  </p>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {CHAT_WALLPAPER_PRESETS.map(preset => {
+                    const selected = activeChat.wallpaper === preset.value || (!activeChat.wallpaper && preset.value === '');
+                    return (
+                      <button
+                        key={preset.id}
+                        onClick={() => handleWallpaperChange(preset.value)}
+                        className={`rounded-2xl border p-1.5 text-left transition-all ${
+                          selected ? 'border-primary ring-2 ring-primary/20' : 'border-border hover:border-primary/40'
+                        }`}
+                      >
+                        <div
+                          className="h-16 rounded-xl border border-white/20"
+                          style={{ background: preset.preview }}
+                        />
+                        <p className={`px-1 pt-2 text-[11px] font-medium ${selected ? 'text-primary' : 'text-foreground'}`}>
+                          {preset.label}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+                <input
+                  ref={wallpaperInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleWallpaperUpload}
+                />
+                <button
+                  onClick={() => wallpaperInputRef.current?.click()}
+                  className="mt-3 w-full rounded-2xl border border-dashed border-border px-4 py-3 text-sm font-medium text-foreground transition-colors hover:border-primary/50 hover:bg-muted/40"
+                >
+                  Upload From Device
+                </button>
+              </div>
 
               {/* Community channels */}
               {activeChat.type === 'channel' && community && (

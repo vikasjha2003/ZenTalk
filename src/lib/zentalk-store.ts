@@ -1,6 +1,6 @@
 import type {
   ZenUser, ZenChat, ZenMessage, ZenGroup, ZenCommunity,
-  ZenContact, ZenSettings, ZenSession
+  ZenContact, ZenSettings, ZenSession, ZenCallShortcut
 } from './zentalk-types';
 
 const KEYS = {
@@ -11,6 +11,7 @@ const KEYS = {
   GROUPS: 'zentalk_groups',
   COMMUNITIES: 'zentalk_communities',
   CONTACTS: 'zentalk_contacts',
+  CALL_SHORTCUTS: 'zentalk_call_shortcuts',
   SETTINGS: 'zentalk_settings',
   STARRED: 'zentalk_starred',
 };
@@ -96,10 +97,17 @@ export const getContacts = (): ZenContact[] => get(KEYS.CONTACTS, []);
 export const setContacts = (c: ZenContact[]) => set(KEYS.CONTACTS, c);
 export const addContact = (c: ZenContact) => setContacts([...getContacts(), c]);
 
+// Call shortcuts
+export const getCallShortcuts = (): ZenCallShortcut[] => get(KEYS.CALL_SHORTCUTS, []);
+export const setCallShortcuts = (entries: ZenCallShortcut[]) => set(KEYS.CALL_SHORTCUTS, entries);
+export const addCallShortcut = (entry: ZenCallShortcut) => setCallShortcuts([...getCallShortcuts(), entry]);
+export const deleteCallShortcut = (id: string) => setCallShortcuts(getCallShortcuts().filter(entry => entry.id !== id));
+
 // Settings
 export const getSettings = (): ZenSettings => get(KEYS.SETTINGS, {
   theme: 'system',
   notifications: true,
+  systemNotifications: false,
   aiEnabled: true,
   language: 'en',
   lastSeenPrivacy: 'everyone',
@@ -125,11 +133,11 @@ export const initMockData = () => {
 
   const now = Date.now();
   const users: ZenUser[] = [
-    { id: 'user-demo', name: 'You (Demo)', username: 'demo', email: 'demo@zentalk.app', mobile: '+1-555-0000', password: 'demo123', avatar: '🧑', bio: 'Hey there! I am using ZenTalk.', status: 'online', lastSeen: now, createdAt: now },
-    { id: 'user-alice', name: 'Alice Chen', username: 'alice', email: 'alice@zentalk.app', mobile: '+1-555-0001', password: 'alice123', avatar: '👩', bio: 'Product Designer at ZenTalk', status: 'online', lastSeen: now - 60000, createdAt: now - 86400000 },
-    { id: 'user-bob', name: 'Bob Martinez', username: 'bob', email: 'bob@zentalk.app', mobile: '+1-555-0002', password: 'bob123', avatar: '👨', bio: 'Full-stack developer 🚀', status: 'offline', lastSeen: now - 3600000, createdAt: now - 172800000 },
-    { id: 'user-carlos', name: 'Carlos Rivera', username: 'carlos', email: 'carlos@zentalk.app', mobile: '+1-555-0003', password: 'carlos123', avatar: '🧔', bio: 'Coffee ☕ & Code', status: 'away', lastSeen: now - 1800000, createdAt: now - 259200000 },
-    { id: 'user-diana', name: 'Diana Park', username: 'diana', email: 'diana@zentalk.app', mobile: '+1-555-0004', password: 'diana123', avatar: '👩‍💼', bio: 'Marketing lead | ZenTalk HQ', status: 'online', lastSeen: now - 300000, createdAt: now - 345600000 },
+    { id: 'user-demo', name: 'You', username: 'demo', email: 'demo@zentalk.app', mobile: '+1-555-0000', password: 'demo123', avatar: '🧑', bio: 'Hey there! I am using ZenTalk.', blockedUserIds: [], status: 'online', lastSeen: now, createdAt: now },
+    { id: 'user-alice', name: 'Alice Chen', username: 'alice', email: 'alice@zentalk.app', mobile: '+1-555-0001', password: 'alice123', avatar: '👩', bio: 'Product Designer at ZenTalk', blockedUserIds: [], status: 'online', lastSeen: now - 60000, createdAt: now - 86400000 },
+    { id: 'user-bob', name: 'Bob Martinez', username: 'bob', email: 'bob@zentalk.app', mobile: '+1-555-0002', password: 'bob123', avatar: '👨', bio: 'Full-stack developer 🚀', blockedUserIds: [], status: 'offline', lastSeen: now - 3600000, createdAt: now - 172800000 },
+    { id: 'user-carlos', name: 'Carlos Rivera', username: 'carlos', email: 'carlos@zentalk.app', mobile: '+1-555-0003', password: 'carlos123', avatar: '🧔', bio: 'Coffee ☕ & Code', blockedUserIds: [], status: 'away', lastSeen: now - 1800000, createdAt: now - 259200000 },
+    { id: 'user-diana', name: 'Diana Park', username: 'diana', email: 'diana@zentalk.app', mobile: '+1-555-0004', password: 'diana123', avatar: '👩‍💼', bio: 'Marketing lead | ZenTalk HQ', blockedUserIds: [], status: 'online', lastSeen: now - 300000, createdAt: now - 345600000 },
   ];
   setUsers(users);
 

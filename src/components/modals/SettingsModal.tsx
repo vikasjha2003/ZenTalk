@@ -1,18 +1,52 @@
-import { useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useApp } from '@/contexts/AppContext';
-import { X, Bell, Eye, Bot, Edit2 } from 'lucide-react';
+import { X, Bell, Eye, Bot, Edit2, MonitorSmartphone, Sparkles, Upload, Smartphone, BadgeCheck } from 'lucide-react';
+import UserAvatar from '@/components/ui/user-avatar';
 
 export default function SettingsModal() {
-  const { currentUser, updateProfile, settings, updateSettings, setShowSettings } = useApp();
+  const {
+    currentUser,
+    updateProfile,
+    settings,
+    updateSettings,
+    setShowSettings,
+    notificationPermission,
+    requestNotificationPermission,
+    sendTestNotification,
+  } = useApp();
   const [tab, setTab] = useState<'profile' | 'notifications' | 'privacy' | 'appearance' | 'ai'>('profile');
   const [editBio, setEditBio] = useState(false);
   const [bio, setBio] = useState(currentUser?.bio || '');
   const [editName, setEditName] = useState(false);
   const [name, setName] = useState(currentUser?.name || '');
+  const [mobile, setMobile] = useState(currentUser?.mobile || '');
+  const [editMobile, setEditMobile] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const avatarOptions = ['🧑', '👩', '👨', '🧔', '👩‍💼', '👨‍💼', '🧑‍💻', '👩‍🎨', '🦸', '🧙', '🧝', '🧛', '🤖', '👾', '🦊', '🐱', '🐶', '🦁', '🐯', '🦄'];
+  const profileChecks = useMemo(() => ([
+    Boolean(currentUser?.name.trim()),
+    Boolean(currentUser?.email.trim()),
+    Boolean(currentUser?.mobile.trim()),
+    Boolean(currentUser?.bio.trim()),
+    Boolean(currentUser?.avatar && currentUser.avatar !== '🧑'),
+  ]), [currentUser?.avatar, currentUser?.bio, currentUser?.email, currentUser?.mobile, currentUser?.name]);
+  const profileCompletion = Math.round((profileChecks.filter(Boolean).length / profileChecks.length) * 100);
 
   if (!currentUser) return null;
+
+  const handleAvatarUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result !== 'string') return;
+      updateProfile({ avatar: reader.result });
+    };
+    reader.readAsDataURL(file);
+    event.target.value = '';
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -51,12 +85,53 @@ export default function SettingsModal() {
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
             {tab === 'profile' && (
               <>
+                <div className="rounded-3xl border border-border bg-muted/30 p-5">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">Profile Completion</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Complete your photo, phone, and bio for a stronger profile presence in chat and calls.
+                      </p>
+                    </div>
+                    <div className="rounded-2xl bg-primary/10 px-3 py-2 text-right">
+                      <p className="text-xl font-bold text-primary">{profileCompletion}%</p>
+                      <p className="text-[11px] uppercase tracking-wider text-primary/80">Complete</p>
+                    </div>
+                  </div>
+                  <div className="mt-4 h-2 overflow-hidden rounded-full bg-background">
+                    <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${profileCompletion}%` }} />
+                  </div>
+                </div>
+
                 {/* Avatar */}
                 <div className="flex flex-col items-center gap-4">
                   <div className="relative">
-                    <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center text-4xl">
-                      {currentUser.avatar}
-                    </div>
+                    <UserAvatar
+                      avatar={currentUser.avatar}
+                      name={currentUser.name}
+                      className="h-24 w-24 text-4xl ring-4 ring-primary/10"
+                      fallbackClassName="bg-primary/10 text-4xl"
+                    />
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="absolute -bottom-1 -right-1 flex h-9 w-9 items-center justify-center rounded-full bg-primary text-white shadow-lg transition-colors hover:bg-primary/90"
+                      title="Upload profile photo"
+                    >
+                      <Upload className="h-4 w-4" />
+                    </button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleAvatarUpload}
+                    />
+                  </div>
+                  <div className="w-full rounded-2xl border border-border bg-background/70 p-3 text-center">
+                    <p className="text-sm font-medium text-foreground">Profile Photo</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Upload from your device or keep using an emoji avatar.
+                    </p>
                   </div>
                   <div className="flex flex-wrap justify-center gap-2">
                     {avatarOptions.map(a => (
@@ -100,6 +175,46 @@ export default function SettingsModal() {
                   <p className="text-foreground">@{currentUser.username}</p>
                 </div>
 
+                {/* Mobile */}
+                <div>
+                  <label className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    <Smartphone className="h-3.5 w-3.5" />
+                    Mobile Number
+                  </label>
+                  {editMobile ? (
+                    <div className="flex gap-2">
+                      <input
+                        value={mobile}
+                        onChange={e => setMobile(e.target.value)}
+                        className="flex-1 rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                        autoFocus
+                      />
+                      <button
+                        onClick={() => { updateProfile({ mobile }); setEditMobile(false); }}
+                        className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90"
+                      >
+                        Save
+                      </button>
+                      <button
+                        onClick={() => setEditMobile(false)}
+                        className="rounded-xl border border-border px-4 py-2 text-sm text-foreground hover:bg-muted"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-foreground">{currentUser.mobile || 'Add a mobile number'}</span>
+                      <button
+                        onClick={() => { setMobile(currentUser.mobile); setEditMobile(true); }}
+                        className="flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground hover:bg-muted"
+                      >
+                        <Edit2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+
                 {/* Bio */}
                 <div>
                   <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Bio</label>
@@ -131,6 +246,28 @@ export default function SettingsModal() {
                   <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Email</label>
                   <p className="text-foreground text-sm">{currentUser.email}</p>
                 </div>
+
+                <div>
+                  <label className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    <BadgeCheck className="h-3.5 w-3.5" />
+                    Status
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['online', 'away', 'offline'] as const).map(status => (
+                      <button
+                        key={status}
+                        onClick={() => updateProfile({ status })}
+                        className={`rounded-xl border px-3 py-2 text-sm font-medium capitalize transition-colors ${
+                          currentUser.status === status
+                            ? 'border-primary bg-primary/10 text-primary'
+                            : 'border-border text-foreground hover:bg-muted'
+                        }`}
+                      >
+                        {status}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </>
             )}
 
@@ -157,6 +294,42 @@ export default function SettingsModal() {
                   checked={settings.notifications}
                   onChange={v => updateSettings({ notifications: v })}
                 />
+                <ToggleRow
+                  icon={<MonitorSmartphone className="w-4 h-4" />}
+                  label="System Notifications"
+                  description="Show notifications on your device outside the browser tab"
+                  checked={settings.systemNotifications}
+                  onChange={async v => {
+                    if (v && notificationPermission !== 'granted') {
+                      const result = await requestNotificationPermission();
+                      updateSettings({ systemNotifications: result === 'granted' });
+                      return;
+                    }
+                    updateSettings({ systemNotifications: v });
+                  }}
+                />
+                <div className="rounded-2xl border border-border bg-muted/30 p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                      <Sparkles className="h-4 w-4" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-foreground">Notification Preview</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Permission: {notificationPermission === 'unsupported' ? 'Unsupported browser' : notificationPermission}
+                      </p>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        ZenTalk will show a polished message or call preview on your system when the app is in the background.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => { void sendTestNotification(); }}
+                    className="mt-4 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary/90"
+                  >
+                    Send Test Preview
+                  </button>
+                </div>
               </div>
             )}
 
@@ -261,8 +434,8 @@ function ToggleRow({ icon, label, description, checked, onChange }: {
         </div>
       </div>
       <button onClick={() => onChange(!checked)}
-        className={`w-11 h-6 rounded-full transition-colors relative ${checked ? 'bg-primary' : 'bg-muted-foreground/30'}`}>
-        <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-5' : 'translate-x-0.5'}`} />
+        className={`relative h-6 w-11 rounded-full transition-colors ${checked ? 'bg-primary' : 'bg-muted-foreground/30'}`}>
+        <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-5' : 'translate-x-0'}`} />
       </button>
     </div>
   );

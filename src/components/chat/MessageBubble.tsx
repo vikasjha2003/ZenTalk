@@ -1,9 +1,9 @@
-import { useState, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import type { ZenMessage } from '@/lib/zentalk-types';
 import {
   Check, CheckCheck, MoreVertical, Reply, Forward, Edit2, Trash2,
-  Copy, Star, StarOff, Download, FileText
+  Copy, Star, StarOff, Download, FileText, Play, Pause, Volume2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -23,8 +23,167 @@ function StatusIcon({ status }: { status: ZenMessage['status'] }) {
   return <CheckCheck className="w-3 h-3 text-blue-300" />;
 }
 
+function formatAudioTime(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds < 0) return '00:00';
+  const minutes = Math.floor(seconds / 60).toString().padStart(2, '0');
+  const secs = Math.floor(seconds % 60).toString().padStart(2, '0');
+  return `${minutes}:${secs}`;
+}
+
+function AudioMessagePlayer({
+  src,
+  isOwn,
+  canDeleteForEveryone,
+  onDeleteForMe,
+  onDeleteForEveryone,
+}: {
+  src: string;
+  isOwn: boolean;
+  canDeleteForEveryone: boolean;
+  onDeleteForMe: () => void;
+  onDeleteForEveryone: () => void;
+}) {
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [showActions, setShowActions] = useState(false);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const handleLoaded = () => setDuration(audio.duration || 0);
+    const handleTimeUpdate = () => setCurrentTime(audio.currentTime);
+    const handleEnded = () => {
+      setIsPlaying(false);
+      setCurrentTime(0);
+    };
+
+    audio.addEventListener('loadedmetadata', handleLoaded);
+    audio.addEventListener('timeupdate', handleTimeUpdate);
+    audio.addEventListener('ended', handleEnded);
+
+    return () => {
+      audio.removeEventListener('loadedmetadata', handleLoaded);
+      audio.removeEventListener('timeupdate', handleTimeUpdate);
+      audio.removeEventListener('ended', handleEnded);
+    };
+  }, []);
+
+  const togglePlayback = async () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (isPlaying) {
+      audio.pause();
+      setIsPlaying(false);
+      return;
+    }
+    await audio.play();
+    setIsPlaying(true);
+  };
+
+  const handleSeek = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const nextTime = Number(event.target.value);
+    audio.currentTime = nextTime;
+    setCurrentTime(nextTime);
+  };
+
+  const handleDownload = () => {
+    const anchor = document.createElement('a');
+    anchor.href = src;
+    anchor.download = `zentalk-voice-${Date.now()}.webm`;
+    anchor.click();
+  };
+
+  return (
+    <div className={`mb-2 min-w-[260px] rounded-2xl border px-3 py-3 shadow-sm ${
+      isOwn ? 'border-white/10 bg-white/10' : 'border-border bg-muted/80'
+    }`}>
+      <audio ref={audioRef} src={src} preload="metadata" className="hidden" />
+      <div className="flex items-center gap-3">
+        <button
+          onClick={() => { void togglePlayback(); }}
+          className={`flex h-11 w-11 items-center justify-center rounded-full transition-colors ${
+            isOwn ? 'bg-white text-primary hover:bg-white/90' : 'bg-primary text-white hover:bg-primary/90'
+          }`}
+        >
+          {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="ml-0.5 h-4 w-4" />}
+        </button>
+        <div className="min-w-0 flex-1">
+          <div className="mb-1.5 flex items-center justify-between gap-2">
+            <div className={`inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.16em] ${
+              isOwn ? 'text-white/80' : 'text-primary'
+            }`}>
+              <Volume2 className="h-3.5 w-3.5" />
+              Voice Note
+            </div>
+            <span className={`text-xs font-mono ${isOwn ? 'text-white/75' : 'text-muted-foreground'}`}>
+              {formatAudioTime(currentTime)} / {formatAudioTime(duration)}
+            </span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={duration || 0}
+            step={0.1}
+            value={Math.min(currentTime, duration || 0)}
+            onChange={handleSeek}
+            className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-black/10 accent-primary"
+          />
+        </div>
+        <div className="relative flex items-center gap-1">
+          <button
+            onClick={handleDownload}
+            className={`flex h-9 w-9 items-center justify-center rounded-full transition-colors ${
+              isOwn ? 'text-white/85 hover:bg-white/10' : 'text-muted-foreground hover:bg-background'
+            }`}
+            title="Download audio"
+          >
+            <Download className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => setShowActions(prev => !prev)}
+            className={`flex h-9 w-9 items-center justify-center rounded-full transition-colors ${
+              isOwn ? 'text-white/85 hover:bg-white/10' : 'text-muted-foreground hover:bg-background'
+            }`}
+            title="Audio actions"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+          {showActions && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setShowActions(false)} />
+              <div className="absolute right-0 top-11 z-50 w-44 overflow-hidden rounded-2xl border border-border bg-card py-1 shadow-xl">
+                <button
+                  onClick={() => { onDeleteForMe(); setShowActions(false); }}
+                  className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-foreground transition-colors hover:bg-muted"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Delete for me
+                </button>
+                {canDeleteForEveryone && (
+                  <button
+                    onClick={() => { onDeleteForEveryone(); setShowActions(false); }}
+                    className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-destructive transition-colors hover:bg-muted"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Delete for everyone
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function MessageBubble({ message, isOwn, onReply, onForward, onEdit, highlighted }: Props) {
-  const { currentUser, allUsers, messages, deleteMessage, toggleStar, starredIds } = useApp();
+  const { currentUser, allUsers, messages, deleteMessage, deleteMessageForEveryone, toggleStar, starredIds } = useApp();
   const [showMenu, setShowMenu] = useState(false);
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
   const bubbleRef = useRef<HTMLDivElement>(null);
@@ -120,6 +279,15 @@ export default function MessageBubble({ message, isOwn, onReply, onForward, onEd
                 <span className="text-xs truncate">{message.fileName || 'Document'}</span>
                 <Download className="w-4 h-4 flex-shrink-0" />
               </div>
+            )}
+            {message.mediaUrl && message.type === 'audio' && (
+              <AudioMessagePlayer
+                src={message.mediaUrl}
+                isOwn={isOwn}
+                canDeleteForEveryone={isOwn}
+                onDeleteForMe={() => deleteMessage(message.id)}
+                onDeleteForEveryone={() => deleteMessageForEveryone(message.id)}
+              />
             )}
 
             {/* Text */}

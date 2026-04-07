@@ -1,9 +1,10 @@
 import { useState, useMemo } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import { X, Search, UserPlus, MessageCircle, Phone, CheckCircle2, UserCheck } from 'lucide-react';
+import UserAvatar from '@/components/ui/user-avatar';
 
 export default function ContactsModal() {
-  const { contacts, allUsers, currentUser, addContact, startChatWithUser, startCall, setShowContacts, chats } = useApp();
+  const { contacts, allUsers, currentUser, addContact, startChatWithUser, startDirectCallByUserId, setShowContacts } = useApp();
   const [search, setSearch] = useState('');
   const [addQuery, setAddQuery] = useState('');
   const [addError, setAddError] = useState('');
@@ -98,18 +99,19 @@ export default function ContactsModal() {
                 </div>
               ) : filteredContacts.map(contact => {
                 const user = allUsers.find(u => u.id === contact.userId);
-                const existingChat = chats.find(c => c.participants.includes(contact.userId));
                 return (
                   <div key={contact.id} className="flex items-center gap-3 px-4 py-3 hover:bg-muted/60 transition-colors">
-                    <div className="relative flex-shrink-0">
-                      <div className="w-11 h-11 rounded-full bg-primary/10 flex items-center justify-center text-xl">
-                        {user?.avatar || '👤'}
-                      </div>
-                      <span className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-card ${
+                    <UserAvatar
+                      avatar={user?.avatar || '👤'}
+                      name={user?.name || contact.name}
+                      className="h-11 w-11 text-xl"
+                      fallbackClassName="bg-primary/10 text-xl"
+                      online={user?.status === 'online'}
+                      statusClassName={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-card ${
                         user?.status === 'online' ? 'bg-[#25D366]' :
                         user?.status === 'away' ? 'bg-yellow-400' : 'bg-muted-foreground/40'
-                      }`} />
-                    </div>
+                      }`}
+                    />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-foreground truncate">{contact.name}</p>
                       <p className="text-xs text-muted-foreground">@{contact.username}
@@ -123,7 +125,7 @@ export default function ContactsModal() {
                         <MessageCircle className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => { startCall(existingChat?.id || '', 'audio'); setShowContacts(false); }}
+                        onClick={() => { void startDirectCallByUserId(contact.userId, 'audio'); setShowContacts(false); }}
                         className="w-8 h-8 rounded-full hover:bg-primary/10 flex items-center justify-center text-primary transition-colors"
                         title="Call">
                         <Phone className="w-4 h-4" />
@@ -194,15 +196,17 @@ export default function ContactsModal() {
                   </p>
                   {searchResults.map(user => (
                     <div key={user.id} className="flex items-center gap-3 px-4 py-3 hover:bg-muted/60 transition-colors">
-                      <div className="relative flex-shrink-0">
-                        <div className="w-11 h-11 rounded-full bg-primary/10 flex items-center justify-center text-xl">
-                          {user.avatar}
-                        </div>
-                        <span className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-card ${
+                      <UserAvatar
+                        avatar={user.avatar}
+                        name={user.name}
+                        className="h-11 w-11 text-xl"
+                        fallbackClassName="bg-primary/10 text-xl"
+                        online={user.status === 'online'}
+                        statusClassName={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-card ${
                           user.status === 'online' ? 'bg-[#25D366]' :
                           user.status === 'away' ? 'bg-yellow-400' : 'bg-muted-foreground/40'
-                        }`} />
-                      </div>
+                        }`}
+                      />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-foreground truncate">{user.name}</p>
                         <p className="text-xs text-muted-foreground">@{user.username}</p>
