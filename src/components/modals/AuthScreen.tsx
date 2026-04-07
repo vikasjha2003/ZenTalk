@@ -1,12 +1,17 @@
 import { useState } from 'react';
 import { useApp } from '@/contexts/AppContext';
-import { MessageCircle, Eye, EyeOff, Lock } from 'lucide-react';
+import { MessageCircle, Eye, EyeOff, Lock, MailCheck, RotateCcw } from 'lucide-react';
 
 export default function AuthScreen() {
-  const { login, signup } = useApp();
+  const { login, signup, verifySignupOtp } = useApp();
   const [tab, setTab] = useState<'login' | 'signup'>('login');
   const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
   const [showPass, setShowPass] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [signupStep, setSignupStep] = useState<'form' | 'otp'>('form');
+  const [otpCode, setOtpCode] = useState('');
+  const [signupRequestId, setSignupRequestId] = useState('');
 
   const [loginForm, setLoginForm] = useState({ emailOrUsername: '', password: '' });
   const [signupForm, setSignupForm] = useState({
@@ -14,27 +19,96 @@ export default function AuthScreen() {
   });
 
   const avatarOptions = ['🧑', '👩', '👨', '🧔', '👩‍💼', '👨‍💼', '🧑‍💻', '👩‍🎨', '🦸', '🧙', '🧝', '🧛'];
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const getMobileDigits = (value: string) => value.replace(/\D/g, '');
+
+  const resetFeedback = () => {
+    setError('');
+    setInfo('');
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
+    resetFeedback();
+    setIsSubmitting(true);
     const result = await login(loginForm.emailOrUsername, loginForm.password);
+    setIsSubmitting(false);
     if (!result.ok) setError(result.message || 'Invalid email/username or password.');
   };
 
-  const handleSignup = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
+  const requestOtp = async () => {
+    resetFeedback();
     if (!signupForm.name || !signupForm.username || !signupForm.email || !signupForm.password) {
       setError('Please fill in all required fields');
+      return;
+    }
+    if (!signupForm.mobile.trim()) {
+      setError('Mobile number is required');
+      return;
+    }
+    if (!emailPattern.test(signupForm.email.trim())) {
+      setError('Enter a valid email address');
+      return;
+    }
+    const mobileDigits = getMobileDigits(signupForm.mobile);
+    if (mobileDigits.length < 10 || mobileDigits.length > 15) {
+      setError('Enter a valid mobile number with 10 to 15 digits');
       return;
     }
     if (signupForm.password.length < 6) {
       setError('Password must be at least 6 characters');
       return;
     }
-    const result = await signup(signupForm);
-    if (!result.ok) setError(result.message || 'Email or username already taken');
+
+    setIsSubmitting(true);
+    const result = await signup({
+      ...signupForm,
+      email: signupForm.email.trim().toLowerCase(),
+      mobile: mobileDigits,
+    });
+    setIsSubmitting(false);
+
+    if (!result.ok || !result.requestId) {
+      setError(result.message || 'Unable to send verification code.');
+      return;
+    }
+
+    setSignupRequestId(result.requestId);
+    setSignupStep('otp');
+    setOtpCode('');
+    setInfo(result.message || `A verification code was sent to ${signupForm.email}.`);
+  };
+
+  const handleSignup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await requestOtp();
+  };
+
+  const handleVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    resetFeedback();
+    if (!signupRequestId) {
+      setError('Please request a verification code first.');
+      return;
+    }
+    if (!/^\d{6}$/.test(otpCode.trim())) {
+      setError('Enter the 6-digit code sent to your email.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    const result = await verifySignupOtp(signupRequestId, otpCode.trim());
+    setIsSubmitting(false);
+    if (!result.ok) {
+      setError(result.message || 'Unable to verify the code.');
+      return;
+    }
+
+    setInfo(result.message || 'Your account is verified.');
+  };
+
+  const handleResendOtp = async () => {
+    await requestOtp();
   };
 
   const inputCls = 'w-full px-4 py-3 rounded-xl border border-border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all text-sm';
@@ -56,7 +130,14 @@ export default function AuthScreen() {
             {(['login', 'signup'] as const).map(t => (
               <button
                 key={t}
-                onClick={() => { setTab(t); setError(''); }}
+                onClick={() => {
+                  setTab(t);
+                  resetFeedback();
+                  if (t === 'signup') {
+                    setSignupStep('form');
+                    setOtpCode('');
+                  }
+                }}
                 className={`flex-1 py-4 text-sm font-semibold transition-colors capitalize ${
                   tab === t ? 'text-primary border-b-2 border-primary bg-primary/5' : 'text-muted-foreground hover:text-foreground'
                 }`}
@@ -69,8 +150,13 @@ export default function AuthScreen() {
           <div className="max-h-[70vh] overflow-y-auto">
             <div className="p-6">
               {error && (
-                <div className="mb-4 p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm">
+                <div className="mb-4 rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
                   {error}
+                </div>
+              )}
+              {info && (
+                <div className="mb-4 rounded-lg border border-primary/20 bg-primary/10 p-3 text-sm text-primary">
+                  {info}
                 </div>
               )}
 
@@ -109,17 +195,13 @@ export default function AuthScreen() {
                   </div>
                   <button
                     type="submit"
-                    className="w-full py-3 rounded-xl bg-primary text-white font-semibold hover:bg-primary/90 transition-all active:scale-[0.98] shadow-md shadow-primary/20 text-sm mt-2"
+                    disabled={isSubmitting}
+                    className="w-full py-3 rounded-xl bg-primary text-white font-semibold hover:bg-primary/90 transition-all active:scale-[0.98] shadow-md shadow-primary/20 text-sm mt-2 disabled:opacity-60"
                   >
-                    Sign In
+                    {isSubmitting ? 'Signing In...' : 'Sign In'}
                   </button>
-                  <div className="p-3 rounded-xl bg-muted/60 border border-border">
-                    <p className="text-xs text-muted-foreground text-center">
-                      Existing Mongo usernames available: <span className="font-mono text-primary font-medium">coolcookie</span>, <span className="font-mono text-primary font-medium">Rohan05</span>, <span className="font-mono text-primary font-medium">cool</span>
-                    </p>
-                  </div>
                 </form>
-              ) : (
+              ) : signupStep === 'form' ? (
                 <form onSubmit={handleSignup} className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-foreground mb-2">Choose Your Avatar</label>
@@ -144,50 +226,28 @@ export default function AuthScreen() {
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-sm font-medium text-foreground mb-1.5">Full Name <span className="text-destructive">*</span></label>
-                      <input
-                        type="text"
-                        value={signupForm.name}
-                        onChange={e => setSignupForm(p => ({ ...p, name: e.target.value }))}
-                        placeholder="Your name"
-                        className={inputSmCls}
-                        required
-                      />
+                      <input type="text" value={signupForm.name} onChange={e => setSignupForm(p => ({ ...p, name: e.target.value }))} placeholder="Your name" className={inputSmCls} required />
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-foreground mb-1.5">Username <span className="text-destructive">*</span></label>
-                      <input
-                        type="text"
-                        value={signupForm.username}
-                        onChange={e => setSignupForm(p => ({ ...p, username: e.target.value.replace(/\s/g, '') }))}
-                        placeholder="username"
-                        className={inputSmCls}
-                        required
-                      />
+                      <input type="text" value={signupForm.username} onChange={e => setSignupForm(p => ({ ...p, username: e.target.value.replace(/\s/g, '') }))} placeholder="username" className={inputSmCls} required />
                     </div>
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-foreground mb-1.5">Email <span className="text-destructive">*</span></label>
-                    <input
-                      type="email"
-                      value={signupForm.email}
-                      onChange={e => setSignupForm(p => ({ ...p, email: e.target.value }))}
-                      placeholder="you@example.com"
-                      className={inputCls}
-                      required
-                    />
+                    <input type="email" value={signupForm.email} onChange={e => setSignupForm(p => ({ ...p, email: e.target.value }))} placeholder="you@example.com" className={inputCls} required />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-foreground mb-1.5">
-                      Mobile Number <span className="text-xs text-muted-foreground font-normal">(private, optional)</span>
-                    </label>
+                    <label className="block text-sm font-medium text-foreground mb-1.5">Mobile Number <span className="text-destructive">*</span></label>
                     <input
                       type="tel"
                       value={signupForm.mobile}
                       onChange={e => setSignupForm(p => ({ ...p, mobile: e.target.value }))}
-                      placeholder="+1 555 000 0000"
+                      placeholder="10 to 15 digits"
                       className={inputCls}
+                      required
                     />
                   </div>
 
@@ -214,10 +274,72 @@ export default function AuthScreen() {
 
                   <button
                     type="submit"
-                    className="w-full py-3 rounded-xl bg-primary text-white font-semibold hover:bg-primary/90 transition-all active:scale-[0.98] shadow-md shadow-primary/20 text-sm"
+                    disabled={isSubmitting}
+                    className="w-full py-3 rounded-xl bg-primary text-white font-semibold hover:bg-primary/90 transition-all active:scale-[0.98] shadow-md shadow-primary/20 text-sm disabled:opacity-60"
                   >
-                    Create Account
+                    {isSubmitting ? 'Sending Code...' : 'Send Verification Code'}
                   </button>
+                </form>
+              ) : (
+                <form onSubmit={handleVerifyOtp} className="space-y-4">
+                  <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="rounded-2xl bg-primary/10 p-2 text-primary">
+                        <MailCheck className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">Verify your email</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          We sent a 6-digit code to <span className="font-medium text-foreground">{signupForm.email}</span>. Enter it below to finish creating your account.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-1.5">Verification Code</label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={6}
+                      value={otpCode}
+                      onChange={e => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      placeholder="Enter 6-digit code"
+                      className={`${inputCls} text-center text-lg tracking-[0.4em]`}
+                      required
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="w-full py-3 rounded-xl bg-primary text-white font-semibold hover:bg-primary/90 transition-all active:scale-[0.98] shadow-md shadow-primary/20 text-sm disabled:opacity-60"
+                  >
+                    {isSubmitting ? 'Verifying...' : 'Verify And Create Account'}
+                  </button>
+
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSignupStep('form');
+                        setOtpCode('');
+                        resetFeedback();
+                      }}
+                      className="flex-1 rounded-xl border border-border px-4 py-2.5 text-sm font-medium text-foreground hover:bg-muted"
+                    >
+                      Edit Details
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleResendOtp()}
+                      disabled={isSubmitting}
+                      className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl border border-border px-4 py-2.5 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-60"
+                    >
+                      <RotateCcw className="h-4 w-4" />
+                      Resend Code
+                    </button>
+                  </div>
                 </form>
               )}
             </div>
@@ -225,7 +347,7 @@ export default function AuthScreen() {
         </div>
 
         <p className="text-center text-xs text-muted-foreground mt-5 flex items-center justify-center gap-1.5">
-          <Lock className="w-3 h-3" /> Live Mongo auth · Realtime chat and calling
+          <Lock className="w-3 h-3" /> Live Mongo auth · Email OTP verification
         </p>
       </div>
     </div>
