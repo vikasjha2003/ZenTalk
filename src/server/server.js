@@ -5,8 +5,10 @@ import { isValidObjectId, Types } from 'mongoose';
 import { Server } from 'socket.io';
 
 import { connectToDatabase } from './db.js';
-import { sendLoginAlert, sendSignupOtpEmail, sendWelcomeEmail, verifyMailer } from './mailer.js';
-import { Chat, Message, SignupOtp, User } from './models.js';
+import { sendLoginAlert, sendSignupOtpEmail, sendWelcomeEmail, verifyMailer, sendExpiryMail } from './mailer.js';
+import { Chat, Message, SignupOtp, User, Group } from './models.js';
+
+import cron from "node-cron";
 
 const PORT = Number(process.env.PORT || 3001);
 
@@ -688,6 +690,10 @@ io.on('connection', socket => {
     }
     removeSocket(socket.id);
   });
+
+  socket.on("join-group", ({ groupId }) => {
+  socket.join(groupId);
+});
 });
 
 httpServer.listen(PORT, async () => {
@@ -699,3 +705,235 @@ httpServer.listen(PORT, async () => {
     console.log(`ZenTalk realtime server listening on http://localhost:${PORT}`);
   }
 });
+
+
+//-----------------------------Group Working Temprary - Rohan--------------------------------
+app.post("/api/group/create", async (req, res) => {
+  console.log("🔥 API HIT");
+  console.log("BODY:", req.body);
+  const { name, ownerEmail, duration } = req.body;
+
+  const createdAt = new Date();
+  let expiryDate;
+
+if (duration === 0) {
+  // 🔥 DEMO MODE → 1 minute
+  expiryDate = new Date(Date.now() + 60 * 1000);
+} else {
+  expiryDate = new Date();
+  expiryDate.setDate(createdAt.getDate() + duration);
+}
+
+  const group = await Group.create({
+    name,
+    ownerEmail,
+    expiryDate
+  });
+
+  res.json(group);
+});
+
+
+app.post("/api/group/extend/:id", async (req, res) => {
+  const { duration } = req.body;
+
+  const group = await Group.findById(req.params.id);
+
+  group.expiryDate.setDate(group.expiryDate.getDate() + duration);
+  group.status = "active";
+
+  await group.save();
+
+  res.json({ message: "Extended" });
+});
+
+app.post("/api/group/delete/:id", async (req, res) => {
+  const group = await Group.findById(req.params.id);
+
+  group.status = "deleted";
+  await group.save();
+
+  res.json({ message: "Group will be deleted soon" });
+
+  io.to(group._id.toString()).emit("group-warning", {
+  message: "⚠️ This group will be deleted soon. Save your files.",
+  groupId: group._id
+});
+});
+
+app.post("/api/group/retrieve/:id", async (req, res) => {
+  const group = await Group.findById(req.params.id);
+
+  // later we add zip logic
+  await sendExpiryMail(group.ownerEmail, group);
+
+  group.status = "deleted";
+  await group.save();
+
+  res.json({ message: "Data will be sent to email" });
+});
+
+
+
+
+
+
+cron.schedule("* * * * *", async () => {
+  const now = new Date();
+
+  const groups = await Group.find({ isTemporary: true });
+
+  for (let group of groups) {
+    const timeLeftMs = group.expiryDate - now;
+    const daysLeft = timeLeftMs / (1000 * 60 * 60 * 24);
+
+    // ---------------------------
+    // 🔴 DEMO MODE (<= 2 min)
+    // ---------------------------
+    if (timeLeftMs <= 2 * 60 * 1000 && group.status !== "warning") {
+      await sendExpiryMail(group.ownerEmail, group);
+
+      group.status = "warning";
+      await group.save();
+    }
+
+    // ---------------------------
+    // 🟢 PRODUCTION MODE (7 days)
+    // ---------------------------
+    else if (daysLeft <= 7 && group.status !== "warning") {
+      await sendExpiryMail(group.ownerEmail, group);
+
+      group.status = "warning";
+      await group.save();
+    }
+
+    // ---------------------------
+    // 💀 DELETE LOGIC (COMMON)
+    // ---------------------------
+    if (timeLeftMs <= 0 && group.status === "warning") {
+
+      io.to(group._id.toString()).emit("group-warning", {
+        message: "💀 This group has been deleted.",
+        groupId: group._id
+      });
+
+      await Group.deleteOne({ _id: group._id });
+    }
+  }
+});
+
+
+// EXTEND FROM EMAIL LINK
+app.get("/extend/:id", async (req, res) => {
+  try {
+    const group = await Group.findById(req.params.id);
+
+    if (!group) {
+      return res.status(404).send("❌ Group not found");
+    }
+
+    // extend by 30 days (you can change)
+    group.expiryDate.setDate(group.expiryDate.getDate() + 30);
+    group.status = "active";
+
+    await group.save();
+
+    res.send("✅ Group extended successfully");
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("❌ Server error");
+  }
+});
+
+// DELETE FROM EMAIL
+app.get("/delete/:id", async (req, res) => {
+  const group = await Group.findById(req.params.id);
+
+  if (!group) {
+    return res.status(404).send("❌ Group not found or already deleted");
+  }
+
+  group.status = "deleted";
+  await group.save();
+
+  io.to(group._id.toString()).emit("group-warning", {
+    message: "⚠️ This group will be deleted soon.",
+    groupId: group._id
+  });
+
+  res.send("⚠️ Group will be deleted soon");
+});
+
+// RETRIEVE FROM EMAIL
+app.get("/retrieve/:id", async (req, res) => {
+  try {
+    const group = await Group.findById(req.params.id);
+
+    if (!group) {
+      return res.status(404).send("❌ Group not found");
+    }
+
+    // 🔥 emit realtime warning
+    io.to(group._id.toString()).emit("group-warning", {
+      message: "📦 Data backup started. Group will be deleted soon.",
+      groupId: group._id
+    });
+
+    // TODO: later zip logic
+
+    group.status = "deleted";
+    await group.save();
+
+    res.send("📦 Data retrieval started");
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("❌ Server error");
+  }
+});
+
+app.post("/api/group/delete/:id", async (req, res) => {
+  try {
+    const group = await Group.findById(req.params.id);
+
+    if (!group) {
+      return res.status(404).json({ error: "Group not found" });
+    }
+
+    group.status = "deleted";
+    await group.save();
+
+    // 🔥 realtime message
+    io.to(group._id.toString()).emit("group-warning", {
+      message: "⚠️ This group will be deleted soon. Save your files.",
+      groupId: group._id
+    });
+
+    res.json({ message: "Group marked for deletion" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/group/extend/:id", async (req, res) => {
+  try {
+    const { duration } = req.body;
+
+    const group = await Group.findById(req.params.id);
+
+    if (!group) {
+      return res.status(404).json({ error: "Group not found" });
+    }
+
+    group.expiryDate.setDate(group.expiryDate.getDate() + duration);
+    group.status = "active";
+
+    await group.save();
+
+    res.json({ message: "Group extended successfully" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+

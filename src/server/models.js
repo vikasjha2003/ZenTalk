@@ -70,3 +70,24 @@ export const User = mongoose.models.User || mongoose.model('User', userSchema);
 export const Chat = mongoose.models.Chat || mongoose.model('Chat', chatSchema);
 export const Message = mongoose.models.Message || mongoose.model('Message', messageSchema);
 export const SignupOtp = mongoose.models.SignupOtp || mongoose.model('SignupOtp', signupOtpSchema);
+
+
+
+const GroupSchema = new mongoose.Schema({
+  name: String,
+  ownerEmail: String,
+
+  isTemporary: { type: Boolean, default: true },
+
+  createdAt: { type: Date, default: Date.now },
+  expiryDate: Date,
+
+  status: {
+    type: String,
+    enum: ["active", "warning", "deleted"],
+    default: "active"
+  }
+});
+
+export const Group =
+  mongoose.models.Group || mongoose.model("Group", GroupSchema);
