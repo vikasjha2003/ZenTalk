@@ -710,6 +710,14 @@ export default function SidebarNav() {
         )}
       </div>
 
+      {/* Footer */}
+      <div className="p-4 border-t border-border">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground justify-center">
+          <span className="w-2 h-2 rounded-full bg-[#25D366]" />
+          End-to-end encrypted
+        </div>
+      </div>
+
       {/* Context Menu */}
       {contextMenu && (
         <>

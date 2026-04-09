@@ -181,10 +181,6 @@ useEffect(() => {
           <p className="text-muted-foreground text-sm max-w-xs">
             Select a conversation to start messaging, or search for someone new.
           </p>
-          <div className="mt-6 flex items-center gap-2 text-xs text-muted-foreground">
-            <span className="w-2 h-2 rounded-full bg-[#25D366]" />
-            End-to-end encrypted
-          </div>
         </motion.div>
       </div>
     );
