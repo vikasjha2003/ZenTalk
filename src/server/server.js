@@ -155,10 +155,7 @@ function serializeMessage(message) {
   };
 }
 
-<<<<<<< Updated upstream
 function serializeChat(chat, currentUserId, usersById, preference = null) {
-=======
-function serializeChat(chat, currentUserId, usersById) {
   if (chat.type === 'group') {
     const participantIds = (chat.participantIds || []).map(id => id.toString());
     return {
@@ -179,7 +176,6 @@ function serializeChat(chat, currentUserId, usersById) {
     };
   }
 
->>>>>>> Stashed changes
   const participantIds = (chat.participantIds || []).map(id => id.toString());
   const otherUserId = participantIds.find(id => id !== currentUserId) || participantIds[0] || '';
   const otherUser = usersById.get(otherUserId);
@@ -369,29 +365,10 @@ async function buildBootstrap(userId) {
     if (!messagesByChat[chatId]) messagesByChat[chatId] = [];
     messagesByChat[chatId].push(serializeMessage(message));
   });
-<<<<<<< Updated upstream
 
   const groups = await Group.find({
     "members.userId": new Types.ObjectId(userId),
   });
-
-  const chatsWithPreview = chats
-    .sort((a, b) => new Date(b.lastTime || b.createdAt).getTime() - new Date(a.lastTime || a.createdAt).getTime())
-    .map(chat => {
-      const preference = preferenceMap.get(chat._id.toString()) || null;
-      const serialized = serializeChat(chat, userId, usersById, preference);
-      const visibleMessages = messagesByChat[chat._id.toString()] || [];
-      const latestVisibleMessage = visibleMessages[visibleMessages.length - 1];
-      return {
-        ...serialized,
-        lastMessage: latestVisibleMessage ? getMessagePreview(latestVisibleMessage) : '',
-        lastTime: latestVisibleMessage?.timestamp ?? serialized.lastTime,
-      };
-    });
-=======
-const groups = await Group.find({
-  "members.userId": new Types.ObjectId(userId),
-});
 
   const groupChats = groups.map((group) => {
     const participantIds = (group.members || []).map((member) => member.userId.toString());
@@ -409,18 +386,25 @@ const groups = await Group.find({
   });
 
   const allChats = [...chats, ...groupChats];
->>>>>>> Stashed changes
+
+  const chatsWithPreview = allChats
+    .sort((a, b) => new Date(b.lastTime || b.createdAt).getTime() - new Date(a.lastTime || a.createdAt).getTime())
+    .map(chat => {
+      const preference = preferenceMap.get(chat._id.toString()) || null;
+      const serialized = serializeChat(chat, userId, usersById, preference);
+      const visibleMessages = messagesByChat[chat._id.toString()] || [];
+      const latestVisibleMessage = visibleMessages[visibleMessages.length - 1];
+      return {
+        ...serialized,
+        lastMessage: latestVisibleMessage ? getMessagePreview(latestVisibleMessage) : '',
+        lastTime: latestVisibleMessage?.timestamp ?? serialized.lastTime,
+      };
+    });
 
   return {
     currentUser: serializeUser(currentUser),
     users: users.map(serializeUser),
-<<<<<<< Updated upstream
     chats: chatsWithPreview,
-=======
-    chats: allChats
-      .sort((a, b) => new Date(b.lastTime || b.createdAt).getTime() - new Date(a.lastTime || a.createdAt).getTime())
-      .map(chat => serializeChat(chat, userId, usersById)),
->>>>>>> Stashed changes
     messagesByChat,
     groups: groups.map(g => ({
       id: g._id.toString(),
