@@ -818,18 +818,43 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
 
     peerConnection.ontrack = (event) => {
-      const stream = remoteStreamsRef.current.get(remoteUserId);
-      if (!stream) return;
-      event.streams[0].getTracks().forEach(track => {
-        const exists = stream.getTracks().some(existingTrack => existingTrack.id === track.id);
-        if (!exists) stream.addTrack(track);
-      });
-      updateRemoteParticipantState(remoteUserId, {
-        stream: new MediaStream(stream.getTracks()),
-        videoEnabled: stream.getVideoTracks().some(track => track.enabled),
-      });
-      syncRemoteParticipants();
-    };
+  let stream = remoteStreamsRef.current.get(remoteUserId);
+
+  if (!stream) {
+    stream = new MediaStream();
+    remoteStreamsRef.current.set(remoteUserId, stream);
+  }
+
+  event.streams[0].getTracks().forEach(track => {
+    const exists = stream.getTracks().some(existingTrack => existingTrack.id === track.id);
+    if (!exists) stream.addTrack(track);
+  });
+
+  updateRemoteParticipantState(remoteUserId, {
+    stream: new MediaStream(stream.getTracks()),
+    videoEnabled: stream.getVideoTracks().some(track => track.enabled),
+  });
+
+  // ✅ AUDIO PLAY FIX
+  const audio = document.getElementById(`audio-${remoteUserId}`) as HTMLAudioElement | null;
+  if (audio) {
+    audio.srcObject = stream; // ✅ FIXED
+    audio.muted = false;
+    audio.play().catch(() => {
+  console.log("Autoplay blocked, retrying...");
+
+  // 🔥 force play on user interaction
+  const unlock = () => {
+    audio.play().catch(() => {});
+    document.removeEventListener("click", unlock);
+  };
+
+  document.addEventListener("click", unlock);
+});
+  }
+
+  syncRemoteParticipants();
+};
 
     peerConnection.onconnectionstatechange = () => {
       const nextState = peerConnection.connectionState || 'connecting';
