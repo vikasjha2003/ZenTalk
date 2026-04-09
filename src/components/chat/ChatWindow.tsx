@@ -8,6 +8,9 @@ import { MessageCircle } from 'lucide-react';
 import { motion } from 'motion/react';
 import UserAvatar from '@/components/ui/user-avatar';
 
+import { socket } from "@/lib/socket";
+
+
 function DateSeparator({ date }: { date: string }) {
   return (
     <div className="flex items-center gap-3 px-4 py-2">
@@ -94,6 +97,25 @@ export default function ChatWindow() {
     setEditingMsg(null);
   }, [activeChat?.id]);
 
+  useEffect(() => {
+  if (activeChat?.id) {
+    socket.emit("join-group", { groupId: activeChat.id });
+  }
+}, [activeChat]);
+
+const [groupWarning, setGroupWarning] = useState<string | null>(null);
+
+useEffect(() => {
+  socket.on("group-warning", (data) => {
+    console.log("⚠️ Warning:", data);
+    setGroupWarning(data.message);
+  });
+
+  return () => {
+    socket.off("group-warning");
+  };
+}, []);
+
   const matchesSelectedDate = (timestamp: number, selectedDate: string) => {
     if (!selectedDate) return true;
     const messageDate = new Date(timestamp);
@@ -171,6 +193,13 @@ export default function ChatWindow() {
         <div className="relative min-h-full py-2" style={messageCanvasStyle}>
         <div className="zentalk-chat-doodles pointer-events-none absolute inset-0" />
         <div className="relative">
+          {groupWarning && (
+  <div className="text-center my-2">
+    <span className="bg-yellow-100 text-yellow-800 px-4 py-1 rounded-full text-xs font-medium">
+      {groupWarning}
+    </span>
+  </div>
+)}
         {visibleMessages.length === 0 && (
           <div className="flex h-full min-h-[320px] flex-col items-center justify-center text-center p-8">
             <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4 text-3xl">
