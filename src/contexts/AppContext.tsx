@@ -1816,6 +1816,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // Calls
+
   const startCall = useCallback(async (chatId: string, type: CallType) => {
     if (!currentUser) return;
 
