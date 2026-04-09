@@ -86,6 +86,11 @@ interface ParticipantLeftPayload {
   userId: string;
 }
 
+interface CallAcceptedPayload {
+  callId: string;
+  userId: string;
+}
+
 const SIGNALING_SERVER_URL = resolveSignalingBase();
 const APP_NOTIFICATION_ICON = '/favicon.ico';
 
@@ -948,6 +953,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await createOfferForParticipant(payload.userId, payload.callId);
     };
 
+    const handleCallAccepted = (payload: CallAcceptedPayload) => {
+      const call = activeCallRef.current;
+      const user = currentUserRef.current;
+      if (!call || !user || call.id !== payload.callId || payload.userId === user.id) return;
+
+      setActiveCall(prev => prev
+        ? {
+            ...prev,
+            status: 'active',
+            startedAt: prev.startedAt ?? Date.now(),
+          }
+        : prev);
+      setCallControls(prev => ({
+        ...prev,
+        connectionState: prev.connectionState === 'idle' ? 'connecting' : prev.connectionState,
+      }));
+    };
+
     const handleWebRtcOffer = async (payload: WebRtcOfferPayload) => {
       const call = activeCallRef.current ?? incomingCallRef.current;
       if (!call || call.id !== payload.callId) return;
@@ -972,6 +995,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!peerConnection) return;
       await peerConnection.setRemoteDescription(new RTCSessionDescription(payload.answer));
       await flushQueuedIceCandidates(payload.fromUserId);
+      setActiveCall(prev => prev
+        ? {
+            ...prev,
+            status: 'active',
+            startedAt: prev.startedAt ?? Date.now(),
+          }
+        : prev);
     };
 
     const handleRemoteIceCandidate = async (payload: IceCandidatePayload) => {
@@ -1112,6 +1142,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     socket.on('connect', registerCurrentUser);
     socket.on('incoming-call', handleIncomingCall);
     socket.on('participant-joined', handleParticipantJoined);
+    socket.on('call-accepted', handleCallAccepted);
     socket.on('webrtc-offer', handleWebRtcOffer);
     socket.on('webrtc-answer', handleWebRtcAnswer);
     socket.on('ice-candidate', handleRemoteIceCandidate);
@@ -1130,6 +1161,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       socket.off('connect', registerCurrentUser);
       socket.off('incoming-call', handleIncomingCall);
       socket.off('participant-joined', handleParticipantJoined);
+      socket.off('call-accepted', handleCallAccepted);
       socket.off('webrtc-offer', handleWebRtcOffer);
       socket.off('webrtc-answer', handleWebRtcAnswer);
       socket.off('ice-candidate', handleRemoteIceCandidate);
