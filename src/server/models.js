@@ -1,5 +1,25 @@
 import mongoose from 'mongoose';
 
+export const Call = mongoose.model(
+  "Call",
+  new mongoose.Schema(
+    {
+      callId: { type: String, required: true, unique: true },
+      chatId: { type: mongoose.Schema.Types.ObjectId, ref: "Chat" },
+      caller: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      participants: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+      status: {
+        type: String,
+        enum: ["ringing", "accepted", "rejected", "ended"],
+        default: "ringing",
+      },
+      startedAt: { type: Date, default: Date.now },
+      endedAt: { type: Date },
+    },
+    { timestamps: true }
+  )
+);
+
 const userSchema = new mongoose.Schema({
   name: { type: String, default: '' },
   username: { type: String, required: true, unique: true, index: true },

@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { createServer } from 'node:http';
 import { isValidObjectId, Types } from 'mongoose';
 import { Server } from 'socket.io';
+import { Call } from './models.js';
 
 import { connectToDatabase } from './db.js';
 import { sendLoginAlert, sendSignupOtpEmail, sendWelcomeEmail, verifyMailer } from './mailer.js';
@@ -602,26 +603,43 @@ io.on('connection', socket => {
     socket.emit('registered', { userId, socketId: socket.id });
   });
 
-  socket.on('call-user', payload => {
-    const room = getOrCreateRoom(payload.callId, payload.fromUserId, payload.chatId, payload.targetUserIds);
-    payload.targetUserIds.forEach(targetUserId => room.invitedUsers.add(targetUserId));
+  socket.on('call-user', async payload => {
+    const { callId, fromUserId, chatId, targetUserIds } = payload;
+
+    console.log("CALL SAVED:", callId);
+
+    await Call.create({
+      callId,
+      chatId,
+      caller: fromUserId,
+      participants: [fromUserId, ...targetUserIds],
+      status: "ringing",
+    });
+
+    const room = getOrCreateRoom(callId, fromUserId, chatId, targetUserIds);
 
     let deliveredCount = 0;
-    payload.targetUserIds.forEach(targetUserId => {
+    targetUserIds.forEach(targetUserId => {
       const delivered = emitToUser(targetUserId, 'incoming-call', payload);
-      if (delivered) deliveredCount += 1;
+      if (delivered) deliveredCount++;
     });
 
     if (deliveredCount === 0) {
       socket.emit('call-failed', {
-        callId: payload.callId,
-        message: 'None of the invited users are currently connected.',
+        callId,
+        message: 'User not online',
       });
-      callRooms.delete(payload.callId);
+
+      await Call.findOneAndUpdate(
+        { callId },
+        { status: "ended", endedAt: new Date() }
+      );
+
+      callRooms.delete(callId);
     }
   });
 
-  socket.on('join-call', payload => {
+  socket.on('join-call', async payload => {
     const room = getOrCreateRoom(payload.callId, payload.fromUserId, payload.chatId);
     room.participants.add(payload.fromUserId);
     room.invitedUsers.delete(payload.fromUserId);
@@ -634,6 +652,12 @@ io.on('connection', socket => {
         });
       }
     });
+
+    await Call.findOneAndUpdate(
+      { callId: payload.callId },
+      { status: "accepted" }
+    );
+
   });
 
   socket.on('webrtc-offer', payload => {
@@ -658,7 +682,7 @@ io.on('connection', socket => {
     });
   });
 
-  socket.on('call-rejected', payload => {
+  socket.on('call-rejected', async payload => {
     const room = callRooms.get(payload.callId);
     if (!room) return;
     room.participants.forEach(participantId => {
@@ -666,6 +690,12 @@ io.on('connection', socket => {
         emitToUser(participantId, 'call-rejected', payload);
       }
     });
+
+    await Call.findOneAndUpdate(
+      { callId: payload.callId },
+      { status: "rejected", endedAt: new Date() }
+    );
+
     room.invitedUsers.delete(payload.fromUserId);
   });
 
@@ -673,7 +703,12 @@ io.on('connection', socket => {
     leaveRoom(payload.callId, payload.fromUserId);
   });
 
-  socket.on('call-ended', payload => {
+  socket.on('call-ended', async payload => {
+    await Call.findOneAndUpdate(
+      { callId: payload.callId },
+      { status: "ended", endedAt: new Date() }
+    );
+
     leaveRoom(payload.callId, payload.fromUserId, { endRoom: true });
   });
 
@@ -697,5 +732,24 @@ httpServer.listen(PORT, async () => {
   } catch (error) {
     console.error('ZenTalk server started without Mongo connection:', error.message);
     console.log(`ZenTalk realtime server listening on http://localhost:${PORT}`);
+  }
+});
+
+app.get('/api/calls/:userId', async (req, res) => {
+  try {
+    await connectToDatabase();
+
+    const { userId } = req.params;
+
+    const calls = await Call.find({
+      participants: userId,
+    })
+      .sort({ createdAt: -1 })
+      .populate('caller', 'name avatar')
+      .populate('participants', 'name avatar');
+
+    res.json({ ok: true, calls });
+  } catch (error) {
+    res.status(500).json({ ok: false, message: error.message });
   }
 });

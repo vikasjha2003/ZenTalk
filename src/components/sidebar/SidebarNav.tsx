@@ -7,8 +7,18 @@ import {
   ChevronDown, ChevronRight
 } from 'lucide-react';
 import type { ZenChat } from '@/lib/zentalk-types';
+import { useEffect } from 'react';
 import * as store from '@/lib/zentalk-store';
 import UserAvatar from '@/components/ui/user-avatar';
+
+type CallLog = {
+  _id: string;
+  participants: { _id: string; name: string }[];
+  createdAt: string;
+  status: string;
+  endedAt?: string;
+  startedAt: string;
+};
 
 function formatTime(ts: number): string {
   const now = Date.now();
@@ -85,6 +95,7 @@ export default function SidebarNav() {
     setShowInfoPanel,
     callShortcuts, saveCallShortcut, deleteCallShortcut, startDirectCallByUserId, startGroupCall,
   } = useApp();
+  
 
   const [showMenu, setShowMenu] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; chat: ZenChat } | null>(null);
@@ -117,6 +128,21 @@ export default function SidebarNav() {
     setContextMenu({ x: e.clientX, y: e.clientY, chat });
   };
 
+   useEffect(() => {
+    const fetchCallLogs = async () => {
+      if (!currentUser) return;
+
+      const res = await fetch(`http://localhost:3001/api/calls/${currentUser.id}`);
+      const data = await res.json();
+
+      if (data.ok) {
+        setCallLogs(data.calls as CallLog[]);
+      }
+    };
+
+    fetchCallLogs();
+  }, [currentUser]);
+
   const handleContextAction = (action: string) => {
     if (!contextMenu) return;
     const { chat } = contextMenu;
@@ -129,6 +155,8 @@ export default function SidebarNav() {
     refreshChats();
     setContextMenu(null);
   };
+
+  const [callLogs, setCallLogs] = useState<CallLog[]>([]);
 
   const groupChats = chats.filter(c => c.type === 'group');
   const communityChats = chats.filter(c => c.type === 'channel');
@@ -590,6 +618,49 @@ export default function SidebarNav() {
                 })}
               </div>
             </div>
+
+            <div className="mt-6">
+              <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Call Logs
+              </p>
+
+              <div className="space-y-2">
+                {callLogs.length === 0 && (
+                  <div className="rounded-2xl border border-dashed border-border px-4 py-5 text-sm text-muted-foreground">
+                    No call history yet.
+                  </div>
+                )}
+
+                {callLogs.map(call => {
+                  const otherUser = call.participants.find(
+                    p => p._id !== currentUser?.id
+                  );
+
+                  return (
+                    <div key={call._id} className="rounded-2xl border border-border bg-background px-4 py-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Phone className="h-4 w-4 text-muted-foreground" />
+                          <span className="font-semibold text-sm text-foreground">
+                            {otherUser?.name || "Unknown"}
+                          </span>
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(call.createdAt).toLocaleTimeString()}
+                        </span>
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-1 ml-6">
+                        {call.status} •{" "}
+                        {call.endedAt
+                          ? Math.floor((new Date(call.endedAt as string).getTime() - new Date(call.startedAt).getTime()) / 1000) + "s"
+                          : "ongoing"}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
           </div>
         )}
       </div>
