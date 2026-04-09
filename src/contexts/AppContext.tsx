@@ -14,11 +14,8 @@ import {
   logoutFromApi,
   sendDirectMessageOnApi,
   signupWithApi,
-<<<<<<< Updated upstream
   updateChatSettingsOnApi,
-=======
   sendGroupMessageOnApi,
->>>>>>> Stashed changes
   updateProfileOnApi,
   verifySignupOtpWithApi,
 } from '@/lib/api-client';
