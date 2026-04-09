@@ -81,7 +81,14 @@ function ForwardModal({ message, onClose }: { message: ZenMessage; onClose: () =
 }
 
 export default function ChatWindow() {
-  const { activeChat, messages, currentUser, inChatSearch, inChatSearchDate } = useApp();
+  const { 
+  activeChat, 
+  messages, 
+  setMessages, // 🔥 ADD THIS
+  currentUser, 
+  inChatSearch, 
+  inChatSearchDate 
+} = useApp();
   const [replyTo, setReplyTo] = useState<ZenMessage | null>(null);
   const [editingMsg, setEditingMsg] = useState<ZenMessage | null>(null);
   const [forwardMsg, setForwardMsg] = useState<ZenMessage | null>(null);
@@ -98,7 +105,7 @@ export default function ChatWindow() {
   }, [activeChat?.id]);
 
   useEffect(() => {
-  if (activeChat?.id) {
+  if (activeChat?.type === "group") {
     socket.emit("join-group", { groupId: activeChat.id });
   }
 }, [activeChat]);
@@ -115,6 +122,37 @@ useEffect(() => {
     socket.off("group-warning");
   };
 }, []);
+
+useEffect(() => {
+  socket.on("group-message", (data) => {
+    console.log("📩 Group message received:", data);
+
+    if (data.groupId === activeChat?.id) {
+      setMessages((prev) => [...prev, data.message]);
+    }
+  });
+
+  return () => {
+    socket.off("group-message");
+  };
+}, [activeChat]);
+
+useEffect(() => {
+  if (!activeChat?.id) return;
+
+  const loadMessages = async () => {
+    const res = await fetch(
+      `http://localhost:3001/api/messages/group/${activeChat.id}`
+    );
+    const data = await res.json();
+
+    if (data.ok) {
+      setMessages(data.messages);
+    }
+  };
+
+  loadMessages();
+}, [activeChat]);
 
   const matchesSelectedDate = (timestamp: number, selectedDate: string) => {
     if (!selectedDate) return true;

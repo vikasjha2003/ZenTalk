@@ -507,7 +507,14 @@ export default function InfoPanel() {
             </div>
           ) : (
             <div className="flex items-center gap-2">
-              <h2 className="text-base font-bold text-foreground">{activeChat.name}</h2>
+              <h2 className="text-base font-bold text-foreground">
+  {activeChat.name}
+  {group?.isTemporary && (
+    <span className="ml-2 text-xs text-yellow-500">
+      (Temporary)
+    </span>
+  )}
+</h2>
               {canManageGroup && group && (
                 <button onClick={() => { setNewName(activeChat.name); setEditingName(true); }}
                   className="w-6 h-6 rounded-full hover:bg-muted flex items-center justify-center text-muted-foreground">

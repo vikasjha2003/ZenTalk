@@ -54,29 +54,41 @@ export default function CreateGroupModal() {
 
     try {
       // 🔥 Call backend if temporary
-      if (isTemporary) {
-       await fetch("http://localhost:3001/api/group/create", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            name: name.trim(),
-            ownerEmail: currentUser?.email,
-            duration: duration,
-          }),
-        });
-      }
+      const res = await fetch("http://localhost:3001/api/group/create", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    name: name.trim(),
+    ownerEmail: currentUser?.email,
+    isTemporary: isTemporary,
+    duration: isTemporary ? duration : null,
+
+    members: [
+      {
+        userId: currentUser?.id,
+        role: "admin",
+      },
+      ...selectedMembers.map((id) => ({
+        userId: id,
+        role: "member",
+      })),
+    ],
+  }),
+});
+
+const data = await res.json();
 
       // UI group creation (existing)
       createGroup(
-        name.trim(),
-        icon,
-        description,
-        selectedMembers,
-        isTemporary,
-        undefined
-      );
+  data.group.name,
+  icon,
+  description,
+  selectedMembers,
+  data.group.isTemporary,
+  data.group.expiryDate
+);
 
       setShowCreateGroup(false);
     } catch (err) {
@@ -250,4 +262,3 @@ export default function CreateGroupModal() {
     </div>
   );
 }
-

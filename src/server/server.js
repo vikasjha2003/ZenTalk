@@ -249,7 +249,9 @@ async function buildBootstrap(userId) {
     if (!messagesByChat[chatId]) messagesByChat[chatId] = [];
     messagesByChat[chatId].push(serializeMessage(message));
   });
-
+const groups = await Group.find({
+  "members.userId": new Types.ObjectId(userId),
+});
   return {
     currentUser: serializeUser(currentUser),
     users: users.map(serializeUser),
@@ -257,7 +259,15 @@ async function buildBootstrap(userId) {
       .sort((a, b) => new Date(b.lastTime || b.createdAt).getTime() - new Date(a.lastTime || a.createdAt).getTime())
       .map(chat => serializeChat(chat, userId, usersById)),
     messagesByChat,
-    groups: [],
+    groups: groups.map(g => ({
+  id: g._id.toString(),
+  name: g.name,
+  ownerEmail: g.ownerEmail,
+  isTemporary: g.isTemporary,
+  expiryDate: g.expiryDate,
+  members: g.members,
+  createdAt: g.createdAt,
+})),
     communities: [],
     contacts: otherUsers.filter(otherUser => contactUserIds.has(otherUser._id.toString())).map(otherUser => ({
       id: `contact-${otherUser._id.toString()}`,
@@ -793,28 +803,36 @@ httpServer.listen(PORT, async () => {
 
 //-----------------------------Group Working Temprary - Rohan--------------------------------
 app.post("/api/group/create", async (req, res) => {
-  console.log("🔥 API HIT");
-  console.log("BODY:", req.body);
-  const { name, ownerEmail, duration } = req.body;
+  try {
+    const { name, ownerEmail, duration, isTemporary, members } = req.body;
 
-  const createdAt = new Date();
-  let expiryDate;
+    const createdAt = new Date();
+    let expiryDate = null;
 
-if (duration === 0) {
-  // 🔥 DEMO MODE → 1 minute
-  expiryDate = new Date(Date.now() + 60 * 1000);
-} else {
-  expiryDate = new Date();
-  expiryDate.setDate(createdAt.getDate() + duration);
-}
+    if (isTemporary) {
+      if (duration === 0) {
+        expiryDate = new Date(Date.now() + 60 * 1000);
+      } else {
+        expiryDate = new Date();
+        expiryDate.setDate(createdAt.getDate() + duration);
+      }
+    }
 
-  const group = await Group.create({
-    name,
-    ownerEmail,
-    expiryDate
-  });
+    const group = await Group.create({
+      name,
+      ownerEmail,
+      isTemporary,
+      expiryDate,
 
-  res.json(group);
+      // 🔥 add members
+      members: members || [],
+    });
+
+    res.json({ ok: true, group });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false });
+  }
 });
 
 
@@ -1037,5 +1055,41 @@ app.post("/api/group/extend/:id", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/messages/group", async (req, res) => {
+  try {
+    const { groupId, senderId, text } = req.body;
+
+    const message = await Message.create({
+      groupId,
+      senderId,
+      text,
+      timestamp: new Date(),
+    });
+
+    // 🔥 realtime send to group
+    io.to(groupId).emit("group-message", {
+      groupId,
+      message,
+    });
+
+    res.json({ ok: true, message });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false });
+  }
+});
+
+app.get("/api/messages/group/:groupId", async (req, res) => {
+  try {
+    const messages = await Message.find({
+      groupId: req.params.groupId,
+    }).sort({ timestamp: 1 });
+
+    res.json({ ok: true, messages });
+  } catch (err) {
+    res.status(500).json({ ok: false });
   }
 });

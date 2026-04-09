@@ -95,19 +95,49 @@ export const SignupOtp = mongoose.models.SignupOtp || mongoose.model('SignupOtp'
 
 
 const GroupSchema = new mongoose.Schema({
-  name: String,
-  ownerEmail: String,
+  name: { type: String, required: true },
+  ownerEmail: { type: String, required: true },
 
-  isTemporary: { type: Boolean, default: true },
+  // 🔥 FIXED
+  isTemporary: { type: Boolean, default: false },
 
   createdAt: { type: Date, default: Date.now },
-  expiryDate: Date,
+
+  // only for temp groups
+  expiryDate: { type: Date, default: null },
+
+  members: [
+  {
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    role: {
+      type: String,
+      enum: ["admin", "member"],
+      default: "member"
+    }
+  }
+],
 
   status: {
     type: String,
     enum: ["active", "warning", "deleted"],
     default: "active"
   }
+
+  
+});
+
+const MessageSchema = new mongoose.Schema({
+  chatId: { type: mongoose.Schema.Types.ObjectId, ref: "Chat", default: null },
+
+  // 🔥 NEW
+  groupId: { type: mongoose.Schema.Types.ObjectId, ref: "Group", default: null },
+
+  senderId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+
+  text: String,
+  type: { type: String, default: "text" },
+
+  timestamp: { type: Date, default: Date.now }
 });
 
 export const Group =

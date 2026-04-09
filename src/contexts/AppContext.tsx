@@ -209,7 +209,9 @@ interface AppContextType {
   refreshChats: () => void;
 
   // Messages
-  messages: ZenMessage[];
+  // Messages
+messages: ZenMessage[];
+setMessages: React.Dispatch<React.SetStateAction<ZenMessage[]>>;
   sendMessage: (text: string, replyTo?: string, mediaUrl?: string, type?: string) => void;
   editMessage: (msgId: string, newText: string) => void;
   deleteMessage: (msgId: string) => void;
@@ -452,7 +454,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      store.initMockData();
+      if (!backendModeRef.current) {
+  store.initMockData();
+}
       const existingUsers = store.getUsers();
       const renamedDemoUser = existingUsers.find(user => user.id === 'user-demo' && user.name === 'You (Demo)');
       if (renamedDemoUser) {
@@ -512,8 +516,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [activeCall?.startedAt]);
 
   const refreshChats = useCallback(() => setChats(store.getChats()), []);
-  const refreshGroups = useCallback(() => setGroups(store.getGroups()), []);
-  const refreshCommunities = useCallback(() => setCommunities(store.getCommunities()), []);
+ const refreshGroups = useCallback(() => {
+  if (!backendModeRef.current) {
+    setGroups(store.getGroups());
+  }
+}, []);
+ const refreshCommunities = useCallback(() => setCommunities(store.getCommunities()), []);
   const refreshContacts = useCallback(() => setContacts(store.getContacts()), []);
   const refreshCallShortcuts = useCallback(() => setCallShortcuts(store.getCallShortcuts()), []);
   const refreshMessages = useCallback(() => {
@@ -521,16 +529,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [activeChat]);
 
   useEffect(() => {
-    if (currentUser) {
-      refreshChats();
-      refreshGroups();
-      refreshCommunities();
-      refreshContacts();
-      refreshCallShortcuts();
-      setAllUsers(store.getUsers());
-    }
-  }, [currentUser, refreshChats, refreshGroups, refreshCommunities, refreshContacts, refreshCallShortcuts]);
-
+  if (currentUser && !backendMode) {
+    refreshChats();
+    refreshGroups();
+    refreshCommunities();
+    refreshContacts();
+    refreshCallShortcuts();
+    setAllUsers(store.getUsers());
+  }
+}, [currentUser, backendMode, refreshChats, refreshGroups, refreshCommunities, refreshContacts, refreshCallShortcuts]);
   useEffect(() => {
     if (activeChat) setMessages(store.getMessages(activeChat.id));
   }, [activeChat]);
@@ -1191,7 +1198,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     store.clearSession();
     setCurrentUser(null);
     setActiveChatState(null);
-    setMessages([]);
     setChats([]);
     setGroups([]);
     setCommunities([]);
@@ -2011,6 +2017,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     showContacts, setShowContacts,
     showCreateGroup, setShowCreateGroup,
     showCreateCommunity, setShowCreateCommunity,
+    setMessages,
     showStarred, setShowStarred,
     sidebarTab, setSidebarTab,
     mobileShowChat, setMobileShowChat,
