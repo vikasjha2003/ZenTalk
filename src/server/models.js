@@ -29,6 +29,7 @@ const userSchema = new mongoose.Schema({
   avatar: { type: String, default: '🧑' },
   bio: { type: String, default: 'Hey there! I am using ZenTalk.' },
   blockedUserIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User', default: [] }],
+  contactUserIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User', default: [] }],
   status: { type: String, enum: ['online', 'offline', 'away'], default: 'offline' },
   lastSeen: { type: Date, default: Date.now },
   createdAt: { type: Date, default: Date.now },

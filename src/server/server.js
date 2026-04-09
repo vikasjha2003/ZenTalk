@@ -115,6 +115,7 @@ function serializeUser(user) {
     avatar: user.avatar || '🧑',
     bio: user.bio || '',
     blockedUserIds: (user.blockedUserIds || []).map(id => id.toString()),
+    contactUserIds: (user.contactUserIds || []).map(id => id.toString()),
     status: user.status || 'offline',
     lastSeen: new Date(user.lastSeen || Date.now()).getTime(),
     createdAt: new Date(user.createdAt || Date.now()).getTime(),
@@ -229,6 +230,7 @@ async function buildBootstrap(userId) {
   }
 
   const otherUsers = users.filter(user => user._id.toString() !== userId);
+  const contactUserIds = new Set((currentUser.contactUserIds || []).map(id => id.toString()));
   const chats = [];
   const messagesByChat = {};
 
@@ -257,7 +259,7 @@ async function buildBootstrap(userId) {
     messagesByChat,
     groups: [],
     communities: [],
-    contacts: otherUsers.map(otherUser => ({
+    contacts: otherUsers.filter(otherUser => contactUserIds.has(otherUser._id.toString())).map(otherUser => ({
       id: `contact-${otherUser._id.toString()}`,
       name: otherUser.name || '',
       username: otherUser.username || '',
@@ -474,6 +476,7 @@ app.post('/api/auth/signup/verify-otp', async (req, res) => {
       avatar: request.avatar || '🧑',
       bio: 'Hey there! I am using ZenTalk.',
       blockedUserIds: [],
+      contactUserIds: [],
       status: 'online',
       lastSeen: new Date(),
       createdAt: new Date(),
@@ -504,6 +507,54 @@ app.post('/api/auth/logout', async (req, res) => {
     res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ ok: false, message: error.message });
+  }
+});
+
+app.post('/api/contacts', async (req, res) => {
+  try {
+    await connectToDatabase();
+    const { ownerUserId, targetUserId } = req.body || {};
+    const ownerId = ensureObjectId(ownerUserId, 'ownerUserId');
+    const targetId = ensureObjectId(targetUserId, 'targetUserId');
+
+    if (ownerId.toString() === targetId.toString()) {
+      res.status(400).json({ ok: false, message: 'You cannot add yourself.' });
+      return;
+    }
+
+    const [owner, target] = await Promise.all([
+      User.findById(ownerId),
+      User.findById(targetId),
+    ]);
+
+    if (!owner || !target) {
+      res.status(404).json({ ok: false, message: 'User not found.' });
+      return;
+    }
+
+    const nextContactUserIds = Array.from(
+      new Set([...(owner.contactUserIds || []).map(id => id.toString()), targetId.toString()]),
+    ).map(id => new Types.ObjectId(id));
+    owner.contactUserIds = nextContactUserIds;
+    await owner.save();
+
+    const chat = await findOrCreateDirectChat(ownerId.toString(), targetId.toString());
+    const users = await User.find({ _id: { $in: chat.participantIds } });
+    const usersById = new Map(users.map(user => [user._id.toString(), user]));
+
+    res.status(201).json({
+      ok: true,
+      contact: {
+        id: `contact-${target._id.toString()}`,
+        name: target.name || '',
+        username: target.username || '',
+        userId: target._id.toString(),
+        addedAt: Date.now(),
+      },
+      chat: serializeChat(chat, ownerId.toString(), usersById),
+    });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ ok: false, message: error.message });
   }
 });
 
@@ -971,4 +1022,3 @@ app.post("/api/group/extend/:id", async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 });
-
