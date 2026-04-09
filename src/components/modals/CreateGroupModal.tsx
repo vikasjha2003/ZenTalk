@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useApp } from "@/contexts/AppContext";
+import { buildBackendUrl } from "@/lib/backend-url";
 import { X, Users, Clock } from "lucide-react";
 import UserAvatar from "@/components/ui/user-avatar";
 
@@ -54,7 +55,7 @@ export default function CreateGroupModal() {
 
     try {
       // 🔥 Call backend if temporary
-      const res = await fetch("http://localhost:3001/api/group/create", {
+      const res = await fetch(buildBackendUrl("/api/group/create"), {
   method: "POST",
   headers: {
     "Content-Type": "application/json",

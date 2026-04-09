@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useApp } from '@/contexts/AppContext';
+import { buildBackendUrl } from '@/lib/backend-url';
 import { MessageCircle, Eye, EyeOff, Lock, MailCheck, RotateCcw } from 'lucide-react';
 
 export default function AuthScreen() {
@@ -234,7 +235,7 @@ export default function AuthScreen() {
 
                       <button
                         onClick={async () => {
-                          const res = await fetch("http://localhost:3001/api/auth/forgot-password-otp", {
+                          const res = await fetch(buildBackendUrl('/api/auth/forgot-password-otp'), {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
                             body: JSON.stringify({ email: loginForm.emailOrUsername }),
@@ -273,7 +274,7 @@ export default function AuthScreen() {
 
                       <button
                         onClick={async () => {
-                          const res = await fetch("http://localhost:3001/api/auth/reset-password-otp", {
+                          const res = await fetch(buildBackendUrl('/api/auth/reset-password-otp'), {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
                             body: JSON.stringify({
