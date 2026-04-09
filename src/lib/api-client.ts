@@ -187,7 +187,7 @@ export async function clearChatOnApi(payload: { chatId: string; userId: string }
   const { chatId, userId } = payload;
   return apiFetch<ClearChatPayload>(`/api/chats/${chatId}/clear`, {
     method: 'POST',
-    body: JSON.stringify({ userId }),
+    body: JSON.stringify({ userId }),});}
 export async function sendGroupMessageOnApi(payload: {
   groupId: string;
   senderId: string;
