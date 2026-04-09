@@ -54,6 +54,19 @@ interface AddContactPayload {
   message?: string;
 }
 
+interface ChatMutationPayload {
+  ok: boolean;
+  chat: ZenChat;
+  message?: string;
+}
+
+interface ClearChatPayload {
+  ok: boolean;
+  chatId: string;
+  clearedAt: number;
+  message?: string;
+}
+
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     headers: {
@@ -152,5 +165,28 @@ export async function sendDirectMessageOnApi(payload: {
   return apiFetch<{ ok: boolean; chat: ZenChat; message: ZenMessage }>('/api/messages/dm', {
     method: 'POST',
     body: JSON.stringify(payload),
+  });
+}
+
+export async function updateChatSettingsOnApi(payload: {
+  chatId: string;
+  userId: string;
+  muted?: boolean;
+  archived?: boolean;
+  pinned?: boolean;
+  disappearing?: ZenChat['disappearing'];
+}) {
+  const { chatId, ...body } = payload;
+  return apiFetch<ChatMutationPayload>(`/api/chats/${chatId}/settings`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function clearChatOnApi(payload: { chatId: string; userId: string }) {
+  const { chatId, userId } = payload;
+  return apiFetch<ClearChatPayload>(`/api/chats/${chatId}/clear`, {
+    method: 'POST',
+    body: JSON.stringify({ userId }),
   });
 }

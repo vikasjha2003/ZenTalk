@@ -8,11 +8,13 @@ import type {
 import * as store from '@/lib/zentalk-store';
 import {
   addContactOnApi,
+  clearChatOnApi,
   fetchBootstrap,
   loginWithApi,
   logoutFromApi,
   sendDirectMessageOnApi,
   signupWithApi,
+  updateChatSettingsOnApi,
   updateProfileOnApi,
   verifySignupOtpWithApi,
 } from '@/lib/api-client';
@@ -206,6 +208,8 @@ interface AppContextType {
   chats: ZenChat[];
   activeChat: ZenChat | null;
   setActiveChat: (chat: ZenChat | null) => void;
+  updateChatPreferences: (chatId: string, patch: Partial<Pick<ZenChat, 'muted' | 'archived' | 'pinned' | 'disappearing'>>) => Promise<{ ok: boolean; message?: string }>;
+  clearChatMessages: (chatId: string) => Promise<{ ok: boolean; message?: string }>;
   refreshChats: () => void;
 
   // Messages
@@ -524,9 +528,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
  const refreshCommunities = useCallback(() => setCommunities(store.getCommunities()), []);
   const refreshContacts = useCallback(() => setContacts(store.getContacts()), []);
   const refreshCallShortcuts = useCallback(() => setCallShortcuts(store.getCallShortcuts()), []);
+  const pruneExpiredMessages = useCallback(() => {
+    const allMessages = store.getAllMessages();
+    let changed = false;
+
+    Object.entries(allMessages).forEach(([chatId, chatMessages]) => {
+      const nextMessages = chatMessages.filter(message => !message.disappearsAt || message.disappearsAt > Date.now());
+      if (nextMessages.length !== chatMessages.length) {
+        store.setMessages(chatId, nextMessages);
+        changed = true;
+      }
+    });
+
+    if (!changed) return false;
+    if (activeChatRef.current) {
+      setMessages(store.getMessages(activeChatRef.current.id));
+    }
+    return true;
+  }, []);
   const refreshMessages = useCallback(() => {
+    pruneExpiredMessages();
     if (activeChat) setMessages(store.getMessages(activeChat.id));
-  }, [activeChat]);
+  }, [activeChat, pruneExpiredMessages]);
 
   useEffect(() => {
   if (currentUser && !backendMode) {
@@ -541,6 +564,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (activeChat) setMessages(store.getMessages(activeChat.id));
   }, [activeChat]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      pruneExpiredMessages();
+    }, 15000);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [pruneExpiredMessages]);
 
   const setActiveChat = useCallback((chat: ZenChat | null) => {
     setActiveChatState(chat);
@@ -1024,6 +1057,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const handleRealtimeMessage = (payload: { chat: ZenChat; message: ZenMessage }) => {
       const activeUser = currentUserRef.current;
       if (!activeUser) return;
+      if (payload.message.disappearsAt && payload.message.disappearsAt <= Date.now()) return;
 
       const existingChat = store.getChatById(payload.chat.id);
       const nextUnreadCount = payload.message.senderId === activeUser.id || activeChatRef.current?.id === payload.chat.id
@@ -1067,6 +1101,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
+    const handleChatUpdated = (payload: { chat: ZenChat }) => {
+      const existingChat = store.getChatById(payload.chat.id);
+      if (existingChat) {
+        store.updateChat(payload.chat.id, {
+          ...existingChat,
+          ...payload.chat,
+        });
+      } else {
+        store.addChat(payload.chat);
+      }
+
+      const updatedChat = store.getChatById(payload.chat.id);
+      setChats(store.getChats());
+      if (activeChatRef.current?.id === payload.chat.id && updatedChat) {
+        setActiveChatState(updatedChat);
+      }
+    };
+
+    const handleChatCleared = (payload: { chatId: string; clearedAt: number }) => {
+      const nextMessages = store.getMessages(payload.chatId).filter(message => message.timestamp > payload.clearedAt);
+      store.setMessages(payload.chatId, nextMessages);
+      if (activeChatRef.current?.id === payload.chatId) {
+        setMessages(nextMessages);
+      }
+    };
+
     socket.on('connect', registerCurrentUser);
     socket.on('incoming-call', handleIncomingCall);
     socket.on('participant-joined', handleParticipantJoined);
@@ -1079,6 +1139,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     socket.on('call-control-updated', handleRemoteControls);
     socket.on('call-failed', handleCallFailed);
     socket.on('message-created', handleRealtimeMessage);
+    socket.on('chat-updated', handleChatUpdated);
+    socket.on('chat-cleared', handleChatCleared);
     socket.connect();
     registerCurrentUser();
 
@@ -1095,6 +1157,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       socket.off('call-control-updated', handleRemoteControls);
       socket.off('call-failed', handleCallFailed);
       socket.off('message-created', handleRealtimeMessage);
+      socket.off('chat-updated', handleChatUpdated);
+      socket.off('chat-cleared', handleChatCleared);
       socket.disconnect();
       if (socketRef.current === socket) socketRef.current = null;
     };
@@ -1236,7 +1300,88 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const updated = store.getUserById(currentUser.id)!;
     setCurrentUser(updated);
     setAllUsers(store.getUsers());
+    if (backendModeRef.current) {
+      void updateProfileOnApi(currentUser.id, { blockedUserIds: nextBlockedUserIds }).then(response => {
+        store.updateUser(currentUser.id, response.user);
+        setCurrentUser(response.user);
+        setAllUsers(store.getUsers());
+      }).catch(() => {});
+    }
   }, [currentUser]);
+
+  const updateChatPreferences = useCallback(async (chatId: string, patch: Partial<Pick<ZenChat, 'muted' | 'archived' | 'pinned' | 'disappearing'>>) => {
+    const existingChat = store.getChatById(chatId);
+    if (!existingChat || !currentUser) return { ok: false, message: 'Chat not found.' };
+
+    store.updateChat(chatId, patch);
+    const updatedChat = store.getChatById(chatId);
+    refreshChats();
+    if (activeChatRef.current?.id === chatId && updatedChat) {
+      setActiveChatState(updatedChat);
+    }
+
+    if (!backendModeRef.current) {
+      return { ok: true };
+    }
+
+    try {
+      const payload = await updateChatSettingsOnApi({
+        chatId,
+        userId: currentUser.id,
+        ...patch,
+      });
+      store.updateChat(chatId, payload.chat);
+      const syncedChat = store.getChatById(chatId);
+      refreshChats();
+      if (activeChatRef.current?.id === chatId && syncedChat) {
+        setActiveChatState(syncedChat);
+      }
+      return { ok: true };
+    } catch (error) {
+      store.updateChat(chatId, existingChat);
+      const revertedChat = store.getChatById(chatId);
+      refreshChats();
+      if (activeChatRef.current?.id === chatId && revertedChat) {
+        setActiveChatState(revertedChat);
+      }
+      return { ok: false, message: error instanceof Error ? error.message : 'Unable to update chat settings.' };
+    }
+  }, [currentUser, refreshChats]);
+
+  const clearChatMessages = useCallback(async (chatId: string) => {
+    if (!store.getChatById(chatId) || !currentUser) return { ok: false, message: 'Chat not found.' };
+
+    const preservedMessages = store.getMessages(chatId);
+    const preservedChat = store.getChatById(chatId);
+    store.setMessages(chatId, []);
+    store.updateChat(chatId, { lastMessage: '', unreadCount: 0 });
+    refreshChats();
+    if (activeChatRef.current?.id === chatId) {
+      const updatedChat = store.getChatById(chatId);
+      if (updatedChat) setActiveChatState(updatedChat);
+    }
+    refreshMessages();
+
+    if (!backendModeRef.current) {
+      return { ok: true };
+    }
+
+    try {
+      await clearChatOnApi({ chatId, userId: currentUser.id });
+      return { ok: true };
+    } catch (error) {
+      store.setMessages(chatId, preservedMessages);
+      if (preservedChat) {
+        store.updateChat(chatId, preservedChat);
+      }
+      refreshChats();
+      if (activeChatRef.current?.id === chatId && preservedChat) {
+        setActiveChatState(preservedChat);
+      }
+      refreshMessages();
+      return { ok: false, message: error instanceof Error ? error.message : 'Unable to clear chat messages.' };
+    }
+  }, [currentUser, refreshChats, refreshMessages]);
 
   const toggleTheme = useCallback(() => {
     setTheme(prev => {
@@ -1997,7 +2142,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const value: AppContextType = {
     currentUser, login, signup, verifySignupOtp, logout, updateProfile, toggleBlockedUser, isUserBlocked,
     theme, toggleTheme,
-    chats, activeChat, setActiveChat, refreshChats,
+    chats, activeChat, setActiveChat, updateChatPreferences, clearChatMessages, refreshChats,
     messages, sendMessage, editMessage, deleteMessage, deleteMessageForEveryone, forwardMessage, toggleStar, refreshMessages,
     groups, createGroup, updateGroup, leaveGroup, kickMember, addMembersToGroup, refreshGroups,
     communities, createCommunity, deleteCommunity, addChannelToCommunity, addGroupToCommunity,

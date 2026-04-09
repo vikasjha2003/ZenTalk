@@ -91,7 +91,7 @@ export default function SidebarNav() {
     currentUser, chats, activeChat, setActiveChat, sidebarTab, setSidebarTab,
     theme, toggleTheme, setShowSettings, setShowContacts, setShowCreateGroup,
     setShowCreateCommunity, setShowStarred, logout, communities, groups,
-    searchQuery, setSearchQuery, refreshChats, startChatWithUser, allUsers, contacts, addContact,
+    searchQuery, setSearchQuery, updateChatPreferences, startChatWithUser, allUsers, contacts, addContact,
     setShowInfoPanel,
     callShortcuts, saveCallShortcut, deleteCallShortcut, startDirectCallByUserId, startGroupCall,
   } = useApp();
@@ -143,16 +143,21 @@ export default function SidebarNav() {
     fetchCallLogs();
   }, [currentUser]);
 
-  const handleContextAction = (action: string) => {
+  const handleContextAction = async (action: string) => {
     if (!contextMenu) return;
     const { chat } = contextMenu;
     switch (action) {
-      case 'pin': store.updateChat(chat.id, { pinned: !chat.pinned }); break;
-      case 'mute': store.updateChat(chat.id, { muted: !chat.muted }); break;
-      case 'archive': store.updateChat(chat.id, { archived: !chat.archived }); break;
+      case 'pin':
+        await updateChatPreferences(chat.id, { pinned: !chat.pinned });
+        break;
+      case 'mute':
+        await updateChatPreferences(chat.id, { muted: !chat.muted });
+        break;
+      case 'archive':
+        await updateChatPreferences(chat.id, { archived: !chat.archived });
+        break;
       case 'delete': store.deleteChat(chat.id); break;
     }
-    refreshChats();
     setContextMenu(null);
   };
 

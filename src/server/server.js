@@ -7,7 +7,7 @@ import { Call } from './models.js';
 
 import { connectToDatabase } from './db.js';
 import { sendLoginAlert, sendSignupOtpEmail, sendWelcomeEmail, verifyMailer, sendExpiryMail } from './mailer.js';
-import { Chat, Message, SignupOtp, User, Group } from './models.js';
+import { Chat, ChatPreference, Message, SignupOtp, User, Group } from './models.js';
 
 import cron from "node-cron";
 
@@ -145,10 +145,11 @@ function serializeMessage(message) {
         ? Array.from(message.reactions.entries())
         : Object.entries(message.reactions || {}),
     ),
+    disappearsAt: message.disappearsAt ? new Date(message.disappearsAt).getTime() : undefined,
   };
 }
 
-function serializeChat(chat, currentUserId, usersById) {
+function serializeChat(chat, currentUserId, usersById, preference = null) {
   const participantIds = (chat.participantIds || []).map(id => id.toString());
   const otherUserId = participantIds.find(id => id !== currentUserId) || participantIds[0] || '';
   const otherUser = usersById.get(otherUserId);
@@ -162,12 +163,73 @@ function serializeChat(chat, currentUserId, usersById) {
     lastMessage: chat.lastMessage || '',
     lastTime: new Date(chat.lastTime || chat.createdAt || Date.now()).getTime(),
     unreadCount: 0,
-    pinned: false,
-    muted: false,
-    archived: false,
+    pinned: Boolean(preference?.pinned),
+    muted: Boolean(preference?.muted),
+    archived: Boolean(preference?.archived),
     wallpaper: '',
-    disappearing: 'off',
+    disappearing: chat.disappearing || 'off',
   };
+}
+
+function getDisappearDuration(timer) {
+  switch (timer) {
+    case '24h':
+      return 24 * 60 * 60 * 1000;
+    case '7d':
+      return 7 * 24 * 60 * 60 * 1000;
+    case '90d':
+      return 90 * 24 * 60 * 60 * 1000;
+    default:
+      return 0;
+  }
+}
+
+function buildPreferenceMap(preferences) {
+  return new Map(preferences.map(preference => [preference.chatId.toString(), preference]));
+}
+
+function getMessagePreview(message) {
+  if (!message) return '';
+  if (message.text) return message.text;
+  if (message.type === 'audio') return 'Voice message';
+  if (message.type === 'image') return 'Image';
+  if (message.type === 'video') return 'Video';
+  if (message.type === 'document') return 'Attachment';
+  return 'Message';
+}
+
+async function getOrCreateChatPreference(chatId, userId) {
+  let preference = await ChatPreference.findOne({ chatId, userId });
+  if (!preference) {
+    preference = await ChatPreference.create({ chatId, userId });
+  }
+  return preference;
+}
+
+async function recalculateChatSummary(chatId) {
+  const latestMessage = await Message.findOne({ chatId }).sort({ timestamp: -1 });
+  if (!latestMessage) {
+    await Chat.findByIdAndUpdate(chatId, {
+      lastMessage: '',
+      lastTime: new Date(),
+    });
+    return;
+  }
+
+  const fallbackText = latestMessage.type === 'audio'
+    ? 'Voice message'
+    : latestMessage.type === 'image'
+      ? 'Image'
+      : latestMessage.type === 'video'
+        ? 'Video'
+        : latestMessage.type === 'document'
+          ? 'Attachment'
+          : 'Message';
+
+  await Chat.findByIdAndUpdate(chatId, {
+    lastMessage: latestMessage.text || fallbackText,
+    lastTime: latestMessage.timestamp || new Date(),
+  });
 }
 
 async function comparePassword(inputPassword, storedPassword) {
@@ -222,6 +284,14 @@ async function findOrCreateDirectChat(userIdA, userIdB) {
 async function buildBootstrap(userId) {
   await connectToDatabase();
 
+  const expiredMessages = await Message.find({ disappearsAt: { $lte: new Date() } }, { chatId: 1 });
+  if (expiredMessages.length > 0) {
+    await Message.deleteMany({ _id: { $in: expiredMessages.map(message => message._id) } });
+    for (const chatId of new Set(expiredMessages.map(message => message.chatId.toString()))) {
+      await recalculateChatSummary(chatId);
+    }
+  }
+
   const users = await User.find({}).sort({ createdAt: 1 });
   const usersById = new Map(users.map(user => [user._id.toString(), user]));
   const currentUser = usersById.get(userId);
@@ -240,34 +310,68 @@ async function buildBootstrap(userId) {
   }
 
   const chatIds = chats.map(chat => chat._id);
+  const preferences = chatIds.length > 0
+    ? await ChatPreference.find({
+        userId: new Types.ObjectId(userId),
+        chatId: { $in: chatIds },
+      })
+    : [];
+  const preferenceMap = buildPreferenceMap(preferences);
   const rawMessages = chatIds.length > 0
-    ? await Message.find({ chatId: { $in: chatIds } }).sort({ timestamp: 1 })
+    ? await Message.find({
+        chatId: { $in: chatIds },
+        $or: [
+          { disappearsAt: null },
+          { disappearsAt: { $gt: new Date() } },
+        ],
+      }).sort({ timestamp: 1 })
     : [];
 
   rawMessages.forEach(message => {
     const chatId = message.chatId.toString();
+    if ((message.deletedFor || []).some(id => id.toString() === userId)) return;
+
+    const preference = preferenceMap.get(chatId);
+    if (preference?.clearBefore && new Date(message.timestamp).getTime() <= new Date(preference.clearBefore).getTime()) {
+      return;
+    }
+
     if (!messagesByChat[chatId]) messagesByChat[chatId] = [];
     messagesByChat[chatId].push(serializeMessage(message));
   });
-const groups = await Group.find({
-  "members.userId": new Types.ObjectId(userId),
-});
+
+  const groups = await Group.find({
+    "members.userId": new Types.ObjectId(userId),
+  });
+
+  const chatsWithPreview = chats
+    .sort((a, b) => new Date(b.lastTime || b.createdAt).getTime() - new Date(a.lastTime || a.createdAt).getTime())
+    .map(chat => {
+      const preference = preferenceMap.get(chat._id.toString()) || null;
+      const serialized = serializeChat(chat, userId, usersById, preference);
+      const visibleMessages = messagesByChat[chat._id.toString()] || [];
+      const latestVisibleMessage = visibleMessages[visibleMessages.length - 1];
+      return {
+        ...serialized,
+        lastMessage: latestVisibleMessage ? getMessagePreview(latestVisibleMessage) : '',
+        lastTime: latestVisibleMessage?.timestamp ?? serialized.lastTime,
+      };
+    });
+
   return {
     currentUser: serializeUser(currentUser),
     users: users.map(serializeUser),
-    chats: chats
-      .sort((a, b) => new Date(b.lastTime || b.createdAt).getTime() - new Date(a.lastTime || a.createdAt).getTime())
-      .map(chat => serializeChat(chat, userId, usersById)),
+    chats: chatsWithPreview,
     messagesByChat,
     groups: groups.map(g => ({
-  id: g._id.toString(),
-  name: g.name,
-  ownerEmail: g.ownerEmail,
-  isTemporary: g.isTemporary,
-  expiryDate: g.expiryDate,
-  members: g.members,
-  createdAt: g.createdAt,
-})),
+      id: g._id.toString(),
+      name: g.name,
+      ownerEmail: g.ownerEmail,
+      isTemporary: g.isTemporary,
+      expiryDate: g.expiryDate,
+      members: g.members,
+      createdAt: g.createdAt,
+    })),
     communities: [],
     contacts: otherUsers.filter(otherUser => contactUserIds.has(otherUser._id.toString())).map(otherUser => ({
       id: `contact-${otherUser._id.toString()}`,
@@ -597,6 +701,110 @@ app.patch('/api/users/:userId', async (req, res) => {
   }
 });
 
+app.patch('/api/chats/:chatId/settings', async (req, res) => {
+  try {
+    await connectToDatabase();
+    const chatId = ensureObjectId(req.params.chatId, 'chatId');
+    const userId = ensureObjectId(req.body?.userId, 'userId');
+    const chat = await Chat.findById(chatId);
+    if (!chat) {
+      res.status(404).json({ ok: false, message: 'Chat not found.' });
+      return;
+    }
+
+    if (!(chat.participantIds || []).some(id => id.toString() === userId.toString())) {
+      res.status(403).json({ ok: false, message: 'You are not part of this chat.' });
+      return;
+    }
+
+    const preferencePatch = {};
+    if (typeof req.body?.muted === 'boolean') preferencePatch.muted = req.body.muted;
+    if (typeof req.body?.archived === 'boolean') preferencePatch.archived = req.body.archived;
+    if (typeof req.body?.pinned === 'boolean') preferencePatch.pinned = req.body.pinned;
+
+    let preference = await getOrCreateChatPreference(chatId, userId);
+    if (Object.keys(preferencePatch).length > 0) {
+      Object.assign(preference, preferencePatch);
+      await preference.save();
+    }
+
+    if (typeof req.body?.disappearing === 'string') {
+      const nextTimer = req.body.disappearing;
+      if (!['off', '24h', '7d', '90d'].includes(nextTimer)) {
+        res.status(400).json({ ok: false, message: 'Invalid disappearing timer.' });
+        return;
+      }
+      chat.disappearing = nextTimer;
+      await chat.save();
+    }
+
+    const users = await User.find({ _id: { $in: chat.participantIds } });
+    const usersById = new Map(users.map(user => [user._id.toString(), user]));
+    const serializedChat = serializeChat(chat, userId.toString(), usersById, preference);
+
+    if (typeof req.body?.disappearing === 'string') {
+      for (const participantId of chat.participantIds || []) {
+        const participantPreference = await getOrCreateChatPreference(chatId, participantId);
+        emitToUser(participantId.toString(), 'chat-updated', {
+          chat: serializeChat(chat, participantId.toString(), usersById, participantPreference),
+        });
+      }
+    } else {
+      emitToUser(userId.toString(), 'chat-updated', { chat: serializedChat });
+    }
+
+    res.json({ ok: true, chat: serializedChat });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ ok: false, message: error.message });
+  }
+});
+
+app.post('/api/chats/:chatId/clear', async (req, res) => {
+  try {
+    await connectToDatabase();
+    const chatId = ensureObjectId(req.params.chatId, 'chatId');
+    const userId = ensureObjectId(req.body?.userId, 'userId');
+    const chat = await Chat.findById(chatId);
+    if (!chat) {
+      res.status(404).json({ ok: false, message: 'Chat not found.' });
+      return;
+    }
+
+    if (!(chat.participantIds || []).some(id => id.toString() === userId.toString())) {
+      res.status(403).json({ ok: false, message: 'You are not part of this chat.' });
+      return;
+    }
+
+    const preference = await getOrCreateChatPreference(chatId, userId);
+    preference.clearBefore = new Date();
+    await preference.save();
+
+    const users = await User.find({ _id: { $in: chat.participantIds } });
+    const usersById = new Map(users.map(user => [user._id.toString(), user]));
+    const serializedChat = {
+      ...serializeChat(chat, userId.toString(), usersById, preference),
+      lastMessage: '',
+      lastTime: Date.now(),
+    };
+
+    emitToUser(userId.toString(), 'chat-cleared', {
+      chatId: chatId.toString(),
+      clearedAt: new Date(preference.clearBefore).getTime(),
+    });
+    emitToUser(userId.toString(), 'chat-updated', {
+      chat: serializedChat,
+    });
+
+    res.json({
+      ok: true,
+      chatId: chatId.toString(),
+      clearedAt: new Date(preference.clearBefore).getTime(),
+    });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ ok: false, message: error.message });
+  }
+});
+
 app.post('/api/messages/dm', async (req, res) => {
   try {
     await connectToDatabase();
@@ -611,7 +819,26 @@ app.post('/api/messages/dm', async (req, res) => {
 
     const senderId = ensureObjectId(fromUserId, 'fromUserId');
     const recipientId = ensureObjectId(toUserId, 'toUserId');
+    const [sender, recipient] = await Promise.all([
+      User.findById(senderId),
+      User.findById(recipientId),
+    ]);
+
+    if (!sender || !recipient) {
+      res.status(404).json({ ok: false, message: 'User not found.' });
+      return;
+    }
+
+    const senderBlocked = (sender.blockedUserIds || []).some(id => id.toString() === recipientId.toString());
+    const recipientBlocked = (recipient.blockedUserIds || []).some(id => id.toString() === senderId.toString());
+    if (senderBlocked || recipientBlocked) {
+      res.status(403).json({ ok: false, message: 'You cannot message this user right now.' });
+      return;
+    }
+
     const chat = await findOrCreateDirectChat(senderId.toString(), recipientId.toString());
+    const disappearDuration = getDisappearDuration(chat.disappearing || 'off');
+    const timestamp = new Date();
 
     const message = await Message.create({
       chatId: chat._id,
@@ -620,23 +847,28 @@ app.post('/api/messages/dm', async (req, res) => {
       type,
       mediaUrl,
       status: 'delivered',
-      timestamp: new Date(),
+      timestamp,
       replyTo: replyTo && isValidObjectId(replyTo) ? new Types.ObjectId(replyTo) : null,
       forwarded: false,
       edited: false,
       deletedFor: [],
       starred: false,
       reactions: {},
+      disappearsAt: disappearDuration > 0 ? new Date(timestamp.getTime() + disappearDuration) : null,
     });
 
     chat.lastMessage = text || (type === 'audio' ? 'Voice message' : type === 'image' ? 'Image' : 'Attachment');
-    chat.lastTime = message.timestamp;
+    chat.lastTime = timestamp;
     await chat.save();
 
     const users = await User.find({ _id: { $in: chat.participantIds } });
     const usersById = new Map(users.map(user => [user._id.toString(), user]));
-    const serializedChatForSender = serializeChat(chat, senderId.toString(), usersById);
-    const serializedChatForRecipient = serializeChat(chat, recipientId.toString(), usersById);
+    const [senderPreference, recipientPreference] = await Promise.all([
+      getOrCreateChatPreference(chat._id, senderId),
+      getOrCreateChatPreference(chat._id, recipientId),
+    ]);
+    const serializedChatForSender = serializeChat(chat, senderId.toString(), usersById, senderPreference);
+    const serializedChatForRecipient = serializeChat(chat, recipientId.toString(), usersById, recipientPreference);
     const serializedMessage = serializeMessage(message);
 
     emitToUser(senderId.toString(), 'message-created', {
@@ -658,6 +890,33 @@ app.post('/api/messages/dm', async (req, res) => {
   }
 });
 
+cron.schedule('* * * * *', async () => {
+  try {
+    await connectToDatabase();
+    const expiredMessages = await Message.find({ disappearsAt: { $lte: new Date() } }, { chatId: 1 });
+    if (expiredMessages.length === 0) return;
+
+    const affectedChatIds = Array.from(new Set(expiredMessages.map(message => message.chatId.toString())));
+    await Message.deleteMany({ _id: { $in: expiredMessages.map(message => message._id) } });
+
+    for (const chatId of affectedChatIds) {
+      await recalculateChatSummary(chatId);
+      const chat = await Chat.findById(chatId);
+      if (!chat) continue;
+      const users = await User.find({ _id: { $in: chat.participantIds } });
+      const usersById = new Map(users.map(user => [user._id.toString(), user]));
+      for (const participantId of chat.participantIds || []) {
+        const preference = await getOrCreateChatPreference(chat._id, participantId);
+        emitToUser(participantId.toString(), 'chat-updated', {
+          chat: serializeChat(chat, participantId.toString(), usersById, preference),
+        });
+      }
+    }
+  } catch (error) {
+    console.error('Failed to clean up expired messages:', error.message);
+  }
+});
+
 io.on('connection', socket => {
   socket.on('register-user', ({ userId }) => {
     if (!userId) return;
@@ -668,6 +927,26 @@ io.on('connection', socket => {
 
   socket.on('call-user', async payload => {
     const { callId, fromUserId, chatId, targetUserIds } = payload;
+    await connectToDatabase();
+
+    const participants = await User.find({ _id: { $in: [fromUserId, ...targetUserIds] } });
+    const usersById = new Map(participants.map(user => [user._id.toString(), user]));
+    const caller = usersById.get(fromUserId);
+
+    const blockedTarget = targetUserIds.find(targetUserId => {
+      const target = usersById.get(targetUserId);
+      const callerBlocked = (caller?.blockedUserIds || []).some(id => id.toString() === targetUserId);
+      const targetBlocked = (target?.blockedUserIds || []).some(id => id.toString() === fromUserId);
+      return callerBlocked || targetBlocked;
+    });
+
+    if (blockedTarget) {
+      socket.emit('call-failed', {
+        callId,
+        message: 'This user is not available for calls.',
+      });
+      return;
+    }
 
     await Call.create({
       callId,

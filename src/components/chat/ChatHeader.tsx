@@ -4,14 +4,14 @@ import {
   Phone, Video, Search, Info, MoreVertical, ArrowLeft,
   VolumeX, Volume2, Trash2, Archive, Clock, CalendarDays, SlidersHorizontal, X, Ban
 } from 'lucide-react';
-import * as store from '@/lib/zentalk-store';
 import UserAvatar from '@/components/ui/user-avatar';
 
 export default function ChatHeader() {
   const {
     activeChat, setActiveChat, currentUser, allUsers, startCall,
     setShowInfoPanel, showInfoPanel, setInChatSearch, inChatSearch, inChatSearchDate, setInChatSearchDate,
-    refreshChats, setMobileShowChat, toggleBlockedUser, isUserBlocked,
+    clearChatMessages, updateChatPreferences, setMobileShowChat, toggleBlockedUser, isUserBlocked,
+    groups,
   } = useApp();
   const [showMenu, setShowMenu] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
@@ -23,7 +23,7 @@ export default function ChatHeader() {
     ? activeChat.participants.find(id => id !== currentUser?.id)
     : null;
   const otherUser = otherUserId ? allUsers.find(u => u.id === otherUserId) : null;
-  const group = activeChat.groupId ? store.getGroupById(activeChat.groupId) : null;
+  const group = activeChat.groupId ? groups.find(item => item.id === activeChat.groupId) : null;
 
   const isOnline = otherUser?.status === 'online';
   const lastSeen = otherUser?.lastSeen
@@ -45,21 +45,27 @@ export default function ChatHeader() {
   const canStartCall = activeChat.type === 'dm' || activeChat.type === 'group';
   const isBlockedDm = activeChat.type === 'dm' && otherUser ? isUserBlocked(otherUser.id) : false;
 
-  const handleMenuAction = (action: string) => {
+  const handleMenuAction = async (action: string) => {
     setShowMenu(false);
     switch (action) {
-      case 'mute': store.updateChat(activeChat.id, { muted: !activeChat.muted }); refreshChats(); break;
-      case 'archive': store.updateChat(activeChat.id, { archived: !activeChat.archived }); refreshChats(); break;
-      case 'clear': store.setMessages(activeChat.id, []); break;
+      case 'mute':
+        await updateChatPreferences(activeChat.id, { muted: !activeChat.muted });
+        break;
+      case 'archive':
+        await updateChatPreferences(activeChat.id, { archived: !activeChat.archived });
+        break;
+      case 'clear':
+        await clearChatMessages(activeChat.id);
+        break;
       case 'block':
         if (otherUser) toggleBlockedUser(otherUser.id);
         break;
-      case 'disappear':
+      case 'disappear': {
         const timers = ['off', '24h', '7d', '90d'] as const;
         const idx = timers.indexOf(activeChat.disappearing);
-        store.updateChat(activeChat.id, { disappearing: timers[(idx + 1) % timers.length] });
-        refreshChats();
+        await updateChatPreferences(activeChat.id, { disappearing: timers[(idx + 1) % timers.length] });
         break;
+      }
     }
   };
 
