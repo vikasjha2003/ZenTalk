@@ -896,15 +896,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!currentUser) return undefined;
 
     const socket = io(SIGNALING_SERVER_URL, {
-      transports: ['websocket', 'polling'],
-      autoConnect: false,
-    });
+  transports: ['websocket'], // ✅ FIXED
+  autoConnect: false,
+});
+
+socketRef.current = socket;
+
+const registerCurrentUser = () => {
+  socket.emit('register-user', { userId: currentUser.id });
+};
+
+socket.on('connect', registerCurrentUser);
+
+socket.connect(); // ✅ ONLY THIS
 
     socketRef.current = socket;
 
-    const registerCurrentUser = () => {
-      socket.emit('register-user', { userId: currentUser.id });
-    };
+    
 
     const handleIncomingCall = (payload: IncomingCallPayload) => {
       const currentActiveCall = activeCallRef.current;
@@ -1155,7 +1163,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     socket.on('chat-updated', handleChatUpdated);
     socket.on('chat-cleared', handleChatCleared);
     socket.connect();
-    registerCurrentUser();
 
     return () => {
       socket.off('connect', registerCurrentUser);
