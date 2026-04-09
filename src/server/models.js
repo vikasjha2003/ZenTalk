@@ -43,11 +43,26 @@ const chatSchema = new mongoose.Schema({
   participantIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true }],
   lastMessage: { type: String, default: '' },
   lastTime: { type: Date, default: Date.now },
+  disappearing: { type: String, enum: ['off', '24h', '7d', '90d'], default: 'off' },
   createdAt: { type: Date, default: Date.now },
 }, {
   collection: 'chats',
   versionKey: false,
 });
+
+const chatPreferenceSchema = new mongoose.Schema({
+  chatId: { type: mongoose.Schema.Types.ObjectId, ref: 'Chat', required: true, index: true },
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  pinned: { type: Boolean, default: false },
+  muted: { type: Boolean, default: false },
+  archived: { type: Boolean, default: false },
+  clearBefore: { type: Date, default: null },
+}, {
+  collection: 'chat_preferences',
+  versionKey: false,
+});
+
+chatPreferenceSchema.index({ chatId: 1, userId: 1 }, { unique: true });
 
 const messageSchema = new mongoose.Schema({
   chatId: { type: mongoose.Schema.Types.ObjectId, ref: 'Chat', required: true, index: true },
@@ -66,6 +81,7 @@ const messageSchema = new mongoose.Schema({
   deletedFor: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User', default: [] }],
   starred: { type: Boolean, default: false },
   reactions: { type: Map, of: [String], default: {} },
+  disappearsAt: { type: Date, default: null, index: true },
 }, {
   collection: 'messages',
   versionKey: false,
@@ -89,6 +105,7 @@ const signupOtpSchema = new mongoose.Schema({
 
 export const User = mongoose.models.User || mongoose.model('User', userSchema);
 export const Chat = mongoose.models.Chat || mongoose.model('Chat', chatSchema);
+export const ChatPreference = mongoose.models.ChatPreference || mongoose.model('ChatPreference', chatPreferenceSchema);
 export const Message = mongoose.models.Message || mongoose.model('Message', messageSchema);
 export const SignupOtp = mongoose.models.SignupOtp || mongoose.model('SignupOtp', signupOtpSchema);
 
