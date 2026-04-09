@@ -14,7 +14,11 @@ import {
   logoutFromApi,
   sendDirectMessageOnApi,
   signupWithApi,
+<<<<<<< Updated upstream
   updateChatSettingsOnApi,
+=======
+  sendGroupMessageOnApi,
+>>>>>>> Stashed changes
   updateProfileOnApi,
   verifySignupOtpWithApi,
 } from '@/lib/api-client';
@@ -1429,6 +1433,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return;
       }
     }
+
+    if (activeChat.type === 'group' && backendModeRef.current && activeChat.groupId) {
+      void sendGroupMessageOnApi({
+        groupId: activeChat.groupId,
+        senderId: currentUser.id,
+        text,
+        replyTo,
+        mediaUrl,
+        type: type as ZenMessage['type'],
+      }).then(({ message }) => {
+        const currentMessages = store.getMessages(message.chatId);
+        if (!currentMessages.some(existingMessage => existingMessage.id === message.id)) {
+          store.setMessages(message.chatId, [...currentMessages, message]);
+        }
+        store.updateChat(activeChat.id, { lastMessage: text, lastTime: Date.now() });
+        setChats(store.getChats());
+        setMessages(store.getMessages(activeChat.id));
+      }).catch(error => {
+        setCallError(error.message);
+      });
+      return;
+    }
+
     const msg: ZenMessage = {
       id: store.genId(), chatId: activeChat.id, senderId: currentUser.id,
       text, type: type as ZenMessage['type'], mediaUrl, status: 'sending',
