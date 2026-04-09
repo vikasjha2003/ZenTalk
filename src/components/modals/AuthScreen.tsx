@@ -4,7 +4,7 @@ import { MessageCircle, Eye, EyeOff, Lock, MailCheck, RotateCcw } from 'lucide-r
 
 export default function AuthScreen() {
   const { login, signup, verifySignupOtp } = useApp();
-  const [tab, setTab] = useState<'login' | 'signup'>('login');
+  const [tab, setTab] = useState<'login' | 'signup' | 'forgot'>('login');
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
   const [showPass, setShowPass] = useState(false);
@@ -17,6 +17,10 @@ export default function AuthScreen() {
   const [signupForm, setSignupForm] = useState({
     name: '', username: '', email: '', mobile: '', password: '', avatar: '🧑',
   });
+
+  const [forgotStep, setForgotStep] = useState<'email' | 'otp'>('email');
+  const [forgotOtp, setForgotOtp] = useState('');
+  const [newPassword, setNewPassword] = useState('');
 
   const avatarOptions = ['🧑', '👩', '👨', '🧔', '👩‍💼', '👨‍💼', '🧑‍💻', '👩‍🎨', '🦸', '🧙', '🧝', '🧛'];
   const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -191,6 +195,18 @@ export default function AuthScreen() {
                       >
                         {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       </button>
+                      <div className="text-right">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTab('forgot');
+                            setForgotStep('email');
+                          }}
+                          className="text-xs text-primary hover:underline"
+                        >
+                          Forgot Password?
+                        </button>
+                      </div>
                     </div>
                   </div>
                   <button
@@ -201,6 +217,88 @@ export default function AuthScreen() {
                     {isSubmitting ? 'Signing In...' : 'Sign In'}
                   </button>
                 </form>
+              ) : tab === 'forgot' ? (
+                <div className="space-y-4">
+
+                  {forgotStep === 'email' ? (
+                    <>
+                      <input
+                        type="email"
+                        placeholder="Enter your email"
+                        value={loginForm.emailOrUsername}
+                        onChange={e =>
+                          setLoginForm(p => ({ ...p, emailOrUsername: e.target.value }))
+                        }
+                        className={inputCls}
+                      />
+
+                      <button
+                        onClick={async () => {
+                          const res = await fetch("http://localhost:3001/api/auth/forgot-password-otp", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ email: loginForm.emailOrUsername }),
+                          });
+
+                          const data = await res.json();
+                          if (data.ok) {
+                            setForgotStep('otp');
+                            setInfo("OTP sent to your email");
+                          } else {
+                            setError(data.message);
+                          }
+                        }}
+                        className="w-full py-3 bg-primary text-white rounded-xl"
+                      >
+                        Send OTP
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <input
+                        type="text"
+                        placeholder="Enter OTP"
+                        value={forgotOtp}
+                        onChange={e => setForgotOtp(e.target.value)}
+                        className={inputCls}
+                      />
+
+                      <input
+                        type="password"
+                        placeholder="New Password"
+                        value={newPassword}
+                        onChange={e => setNewPassword(e.target.value)}
+                        className={inputCls}
+                      />
+
+                      <button
+                        onClick={async () => {
+                          const res = await fetch("http://localhost:3001/api/auth/reset-password-otp", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              email: loginForm.emailOrUsername,
+                              otp: forgotOtp,
+                              newPassword,
+                            }),
+                          });
+
+                          const data = await res.json();
+                          if (data.ok) {
+                            setInfo("Password reset successful");
+                            setTab('login');
+                          } else {
+                            setError(data.message);
+                          }
+                        }}
+                        className="w-full py-3 bg-primary text-white rounded-xl"
+                      >
+                        Reset Password
+                      </button>
+                    </>
+                  )}
+
+                </div>
               ) : signupStep === 'form' ? (
                 <form onSubmit={handleSignup} className="space-y-4">
                   <div>
