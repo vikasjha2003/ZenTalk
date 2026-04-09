@@ -105,8 +105,8 @@ export default function ChatWindow() {
   }, [activeChat?.id]);
 
   useEffect(() => {
-  if (activeChat?.type === "group") {
-    socket.emit("join-group", { groupId: activeChat.id });
+  if (activeChat?.type === "group" && activeChat.groupId) {
+    socket.emit("join-group", { groupId: activeChat.groupId });
   }
 }, [activeChat]);
 
@@ -127,7 +127,7 @@ useEffect(() => {
   socket.on("group-message", (data) => {
     console.log("📩 Group message received:", data);
 
-    if (data.groupId === activeChat?.id) {
+    if (data.groupId === activeChat?.groupId) {
       setMessages((prev) => [...prev, data.message]);
     }
   });
@@ -138,11 +138,11 @@ useEffect(() => {
 }, [activeChat]);
 
 useEffect(() => {
-  if (!activeChat?.id) return;
+  if (activeChat?.type !== 'group' || !activeChat.groupId) return;
 
   const loadMessages = async () => {
     const res = await fetch(
-      `http://localhost:3001/api/messages/group/${activeChat.id}`
+      `http://localhost:3001/api/messages/group/${activeChat.groupId}`
     );
     const data = await res.json();
 

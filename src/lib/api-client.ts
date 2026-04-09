@@ -188,5 +188,16 @@ export async function clearChatOnApi(payload: { chatId: string; userId: string }
   return apiFetch<ClearChatPayload>(`/api/chats/${chatId}/clear`, {
     method: 'POST',
     body: JSON.stringify({ userId }),
+export async function sendGroupMessageOnApi(payload: {
+  groupId: string;
+  senderId: string;
+  text: string;
+  replyTo?: string;
+  mediaUrl?: string;
+  type?: ZenMessage['type'];
+}) {
+  return apiFetch<{ ok: boolean; message: ZenMessage }>('/api/messages/group', {
+    method: 'POST',
+    body: JSON.stringify(payload),
   });
 }
