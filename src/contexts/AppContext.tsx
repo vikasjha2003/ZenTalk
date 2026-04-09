@@ -365,14 +365,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const activeChatRef = useRef<ZenChat | null>(null);
   const backendModeRef = useRef(false);
 
+  const fetchCallLogs = async () => {
+    const res = await fetch(`http://localhost:3001/api/calls/${currentUser.id}`);
+    const data = await res.json();
+
+    if (data.ok) {
+      setCallLogs(data.calls);
+    }
+  };
+
   useEffect(() => {
     currentUserRef.current = currentUser;
   }, [currentUser]);
-  
+
   useEffect(() => {
     if (currentUser) fetchCallLogs();
   }, [currentUser]);
-
+  
   useEffect(() => {
     activeChatRef.current = activeChat;
   }, [activeChat]);
@@ -1749,15 +1758,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // Calls
-
-  const fetchCallLogs = async () => {
-    const res = await fetch(`http://localhost:3001/api/calls/${currentUser.id}`);
-    const data = await res.json();
-
-    if (data.ok) {
-      setCallLogs(data.calls);
-    }
-  };
 
   const startCall = useCallback(async (chatId: string, type: CallType) => {
     if (!currentUser) return;

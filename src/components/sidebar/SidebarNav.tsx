@@ -632,10 +632,12 @@ export default function SidebarNav() {
                 )}
 
                 {callLogs.map(call => {
-                  const otherUser = call.participants.find(
-                    p => p._id !== currentUser?.id
-                  );
 
+                  const otherUser = call.participants?.find(p => {
+                    const id = String(p._id);
+                    return id !== String(currentUser?.id);
+                  });
+                  
                   return (
                     <div key={call._id} className="rounded-2xl border border-border bg-background px-4 py-3">
                       <div className="flex items-center justify-between">

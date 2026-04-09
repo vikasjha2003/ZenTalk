@@ -608,8 +608,6 @@ io.on('connection', socket => {
   socket.on('call-user', async payload => {
     const { callId, fromUserId, chatId, targetUserIds } = payload;
 
-    console.log("CALL SAVED:", callId);
-
     await Call.create({
       callId,
       chatId,
@@ -947,6 +945,25 @@ app.post("/api/group/delete/:id", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.get('/api/calls/:userId', async (req, res) => {
+  try {
+    await connectToDatabase();
+
+    const { userId } = req.params;
+
+    const calls = await Call.find({
+      participants: userId,
+    })
+      .sort({ createdAt: -1 })
+      .populate('caller', 'name avatar')
+      .populate('participants', 'name avatar');
+
+    res.json({ ok: true, calls });
+  } catch (error) {
+    res.status(500).json({ ok: false, message: error.message });
   }
 });
 
