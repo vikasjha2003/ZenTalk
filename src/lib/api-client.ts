@@ -6,28 +6,9 @@ import type {
   ZenMessage,
   ZenUser,
 } from './zentalk-types';
+import { resolveBackendBase } from './backend-url';
 
-function resolveApiBase() {
-  const configured = import.meta.env.VITE_API_URL;
-  if (typeof window === 'undefined') return configured ?? 'http://localhost:3001';
-
-  const fallback = `${window.location.protocol}//${window.location.hostname}:3001`;
-  if (!configured) return fallback;
-
-  try {
-    const url = new URL(configured);
-    if ((url.hostname === 'localhost' || url.hostname === '127.0.0.1') && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-      url.hostname = window.location.hostname;
-      return url.toString().replace(/\/$/, '');
-    }
-  } catch {
-    return fallback;
-  }
-
-  return configured;
-}
-
-const API_BASE = resolveApiBase();
+const API_BASE = resolveBackendBase();
 
 interface BootstrapPayload {
   ok: boolean;

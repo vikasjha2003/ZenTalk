@@ -19,6 +19,7 @@ import {
   updateProfileOnApi,
   verifySignupOtpWithApi,
 } from '@/lib/api-client';
+import { resolveSignalingBase } from '@/lib/backend-url';
 import { createPeerConnection, getLocalStream, setAudioEnabled, setVideoEnabled, stopStream } from '@/lib/webrtc';
 
 interface Toast {
@@ -85,27 +86,7 @@ interface ParticipantLeftPayload {
   userId: string;
 }
 
-function resolveSignalingServerUrl() {
-  const configured = import.meta.env.VITE_SIGNALING_SERVER_URL;
-  if (typeof window === 'undefined') return configured ?? 'http://localhost:3001';
-
-  const fallback = `${window.location.protocol}//${window.location.hostname}:3001`;
-  if (!configured) return fallback;
-
-  try {
-    const url = new URL(configured);
-    if ((url.hostname === 'localhost' || url.hostname === '127.0.0.1') && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-      url.hostname = window.location.hostname;
-      return url.toString().replace(/\/$/, '');
-    }
-  } catch {
-    return fallback;
-  }
-
-  return configured;
-}
-
-const SIGNALING_SERVER_URL = resolveSignalingServerUrl();
+const SIGNALING_SERVER_URL = resolveSignalingBase();
 const APP_NOTIFICATION_ICON = '/favicon.ico';
 
 const createDefaultCallControls = (type: CallType = 'audio'): ZenCallControls => ({
