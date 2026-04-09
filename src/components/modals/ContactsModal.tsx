@@ -31,14 +31,15 @@ export default function ContactsModal() {
     );
   }, [addQuery, allUsers, currentUser, contactUserIds]);
 
-  const handleAdd = (username: string, name: string) => {
+  const handleAdd = async (username: string, name: string, userId: string) => {
     setAddError('');
     setAddSuccess('');
-    const ok = addContact(name, username);
-    if (!ok) setAddError('User not found or already in contacts');
+    const result = await addContact(name, username);
+    if (!result.ok) setAddError(result.message || 'User not found or already in contacts');
     else {
       setAddSuccess(`${name} added to contacts!`);
       setAddQuery('');
+      startChatWithUser(result.userId || userId);
       setTimeout(() => setAddSuccess(''), 3000);
     }
   };
@@ -213,7 +214,7 @@ export default function ContactsModal() {
                         {user.bio && <p className="text-xs text-muted-foreground/70 truncate mt-0.5">{user.bio}</p>}
                       </div>
                       <button
-                        onClick={() => handleAdd(user.username, user.name)}
+                        onClick={() => void handleAdd(user.username, user.name, user.id)}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary text-white text-xs font-semibold hover:bg-primary/90 transition-all active:scale-95 flex-shrink-0">
                         <UserPlus className="w-3.5 h-3.5" /> Add
                       </button>

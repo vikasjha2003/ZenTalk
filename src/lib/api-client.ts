@@ -47,6 +47,13 @@ interface OtpRequestPayload {
   message?: string;
 }
 
+interface AddContactPayload {
+  ok: boolean;
+  contact: ZenContact;
+  chat: ZenChat;
+  message?: string;
+}
+
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     headers: {
@@ -124,6 +131,13 @@ export async function updateProfileOnApi(userId: string, patch: Partial<ZenUser>
   return apiFetch<{ ok: boolean; user: ZenUser }>(`/api/users/${userId}`, {
     method: 'PATCH',
     body: JSON.stringify(patch),
+  });
+}
+
+export async function addContactOnApi(payload: { ownerUserId: string; targetUserId: string }) {
+  return apiFetch<AddContactPayload>('/api/contacts', {
+    method: 'POST',
+    body: JSON.stringify(payload),
   });
 }
 

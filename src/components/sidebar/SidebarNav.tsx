@@ -91,7 +91,7 @@ export default function SidebarNav() {
     currentUser, chats, activeChat, setActiveChat, sidebarTab, setSidebarTab,
     theme, toggleTheme, setShowSettings, setShowContacts, setShowCreateGroup,
     setShowCreateCommunity, setShowStarred, logout, communities, groups,
-    searchQuery, setSearchQuery, refreshChats, startChatWithUser, allUsers,
+    searchQuery, setSearchQuery, refreshChats, startChatWithUser, allUsers, contacts, addContact,
     setShowInfoPanel,
     callShortcuts, saveCallShortcut, deleteCallShortcut, startDirectCallByUserId, startGroupCall,
   } = useApp();
@@ -165,6 +165,17 @@ export default function SidebarNav() {
     ...entry,
     user: entry.userId ? allUsers.find(user => user.id === entry.userId) : null,
   }));
+  const contactUserIds = new Set(contacts.map(contact => contact.userId));
+  const matchedContacts = contacts.filter(contact =>
+    contact.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    contact.username.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+  const addableUsers = allUsers.filter(user =>
+    user.id !== currentUser?.id &&
+    !contactUserIds.has(user.id) &&
+    (user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      user.username.toLowerCase().includes(searchQuery.toLowerCase()))
+  );
 
   const handleSaveShortcut = () => {
     const result = saveCallShortcut(dialLabel, dialNumber);
@@ -313,15 +324,39 @@ export default function SidebarNav() {
               <ChatListItem key={chat.id} chat={chat} active={activeChat?.id === chat.id}
                 onSelect={() => setActiveChat(chat)} onContextMenu={e => handleContextMenu(e, chat)} />
             ))}
-            {/* New chat from contacts */}
+            {/* Contact search / add */}
             {searchQuery && (
               <div className="px-4 py-2 border-t border-border">
-                <p className="text-xs text-muted-foreground mb-2 font-medium">People</p>
-                {allUsers.filter(u => u.id !== currentUser?.id &&
-                  (u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                   u.username.toLowerCase().includes(searchQuery.toLowerCase()))
-                ).map(u => (
-                  <button key={u.id} onClick={() => { startChatWithUser(u.id); setSearchQuery(''); }}
+                {matchedContacts.length > 0 && (
+                  <>
+                    <p className="text-xs text-muted-foreground mb-2 font-medium">Contacts</p>
+                    {matchedContacts.map(contact => (
+                      <button key={contact.id} onClick={() => { startChatWithUser(contact.userId); setSearchQuery(''); }}
+                        className="w-full flex items-center gap-3 py-2 hover:bg-muted/60 rounded-lg px-2 transition-colors">
+                        <UserAvatar
+                          avatar={allUsers.find(user => user.id === contact.userId)?.avatar || '👤'}
+                          name={contact.name}
+                          className="h-9 w-9 text-lg"
+                          fallbackClassName="bg-primary/10 text-lg"
+                        />
+                        <div className="text-left">
+                          <p className="text-sm font-medium text-foreground">{contact.name}</p>
+                          <p className="text-xs text-muted-foreground">@{contact.username}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </>
+                )}
+                {addableUsers.length > 0 && (
+                  <>
+                    <p className="mt-2 mb-2 text-xs text-muted-foreground font-medium">Add by Username</p>
+                    {addableUsers.map(u => (
+                  <button key={u.id} onClick={() => { void addContact(u.name, u.username).then(result => {
+                    if (result.ok) {
+                      startChatWithUser(result.userId || u.id);
+                      setSearchQuery('');
+                    }
+                  }); }}
                     className="w-full flex items-center gap-3 py-2 hover:bg-muted/60 rounded-lg px-2 transition-colors">
                     <UserAvatar
                       avatar={u.avatar}
@@ -333,8 +368,11 @@ export default function SidebarNav() {
                       <p className="text-sm font-medium text-foreground">{u.name}</p>
                       <p className="text-xs text-muted-foreground">@{u.username}</p>
                     </div>
+                    <span className="ml-auto rounded-lg bg-primary/10 px-2 py-1 text-[11px] font-semibold text-primary">Add</span>
                   </button>
-                ))}
+                    ))}
+                  </>
+                )}
               </div>
             )}
           </>

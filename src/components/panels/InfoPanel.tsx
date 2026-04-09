@@ -316,6 +316,47 @@ function AddCommunityMembersModal({ communityId, onClose }: { communityId: strin
   );
 }
 
+function AddGroupMembersModal({ groupId, onClose }: { groupId: string; onClose: () => void }) {
+  const { groups, allUsers, addMembersToGroup } = useApp();
+  const group = groups.find(item => item.id === groupId);
+  const existingIds = new Set(group?.members.map(member => member.userId) ?? []);
+  const candidates = allUsers.filter(user => !existingIds.has(user.id));
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-card rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+          <h3 className="font-bold text-foreground">Add Group Members</h3>
+          <button onClick={onClose} className="w-7 h-7 rounded-full hover:bg-muted flex items-center justify-center text-muted-foreground">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="max-h-80 overflow-y-auto p-5 space-y-2">
+          {candidates.length === 0 && <p className="text-sm text-muted-foreground">Everyone is already in this group.</p>}
+          {candidates.map(user => (
+            <button
+              key={user.id}
+              onClick={() => { addMembersToGroup(groupId, [user.id]); onClose(); }}
+              className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left hover:bg-muted/60"
+            >
+              <UserAvatar
+                avatar={user.avatar}
+                name={user.name}
+                className="h-9 w-9 text-lg"
+                fallbackClassName="bg-primary/10 text-lg"
+              />
+              <div>
+                <p className="text-sm font-medium text-foreground">{user.name}</p>
+                <p className="text-xs text-muted-foreground">@{user.username}</p>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Toggle helper ────────────────────────────────────────────────────────────
 function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -357,6 +398,7 @@ export default function InfoPanel() {
   const [showAddChannel, setShowAddChannel] = useState(false);
   const [showAddGroup, setShowAddGroup] = useState(false);
   const [showAddMembers, setShowAddMembers] = useState(false);
+  const [showAddGroupMembers, setShowAddGroupMembers] = useState(false);
   const [activeTab, setActiveTab] = useState<'info' | 'members' | 'media'>('info');
   const wallpaperInputRef = useRef<HTMLInputElement>(null);
 
@@ -744,6 +786,17 @@ export default function InfoPanel() {
               {/* Group Members */}
               {activeChat.type === 'group' && group && (
                 <div className="py-2">
+                  {(canManageGroup || currentMemberInGroup?.permissions.addMember) && (
+                    <div className="px-4 pb-2">
+                      <button
+                        onClick={() => setShowAddGroupMembers(true)}
+                        className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-border px-3 py-2 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+                      >
+                        <UserPlus className="h-4 w-4" />
+                        Add Member
+                      </button>
+                    </div>
+                  )}
                   {group.members.map(member => {
                     const user = allUsers.find(u => u.id === member.userId);
                     if (!user) return null;
@@ -944,6 +997,9 @@ export default function InfoPanel() {
       )}
       {showAddMembers && activeChat.communityId && (
         <AddCommunityMembersModal communityId={activeChat.communityId} onClose={() => setShowAddMembers(false)} />
+      )}
+      {showAddGroupMembers && activeChat.groupId && (
+        <AddGroupMembersModal groupId={activeChat.groupId} onClose={() => setShowAddGroupMembers(false)} />
       )}
     </>
   );

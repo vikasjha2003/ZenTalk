@@ -7,6 +7,7 @@ import type {
 } from '@/lib/zentalk-types';
 import * as store from '@/lib/zentalk-store';
 import {
+  addContactOnApi,
   fetchBootstrap,
   loginWithApi,
   logoutFromApi,
@@ -178,6 +179,14 @@ const syncCommunityChannelParticipants = (communityId: string, participantIds: s
   ));
 };
 
+const syncGroupChatParticipants = (groupId: string, participantIds: string[]) => {
+  store.setChats(store.getChats().map(chat =>
+    chat.groupId === groupId && chat.type === 'group'
+      ? { ...chat, participants: participantIds }
+      : chat
+  ));
+};
+
 interface AppContextType {
   // Auth
   currentUser: ZenUser | null;
@@ -238,7 +247,8 @@ interface AppContextType {
   // Contacts
   contacts: ZenContact[];
   callShortcuts: ZenCallShortcut[];
-  addContact: (name: string, username: string) => boolean;
+  addContact: (name: string, username: string) => Promise<{ ok: boolean; message?: string; userId?: string }>;
+  addMembersToGroup: (groupId: string, userIds: string[]) => void;
   saveCallShortcut: (label: string, phoneNumber: string) => { ok: boolean; message?: string };
   deleteCallShortcut: (id: string) => void;
   startChatWithUser: (userId: string) => void;
@@ -1391,6 +1401,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       newMembers[0].permissions = buildPermissions('owner');
     }
     store.updateGroup(groupId, { members: newMembers });
+    syncGroupChatParticipants(groupId, newMembers.map(member => member.userId));
     const chatId = `chat-group-${groupId}`;
     if (newMembers.length === 0) store.deleteChat(chatId);
     refreshGroups();
@@ -1401,9 +1412,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const kickMember = useCallback((groupId: string, userId: string) => {
     const group = store.getGroupById(groupId);
     if (!group) return;
-    store.updateGroup(groupId, { members: group.members.filter(m => m.userId !== userId) });
+    const nextMembers = group.members.filter(m => m.userId !== userId);
+    store.updateGroup(groupId, { members: nextMembers });
+    syncGroupChatParticipants(groupId, nextMembers.map(member => member.userId));
     refreshGroups();
-  }, [refreshGroups]);
+    refreshChats();
+  }, [refreshChats, refreshGroups]);
+
+  const addMembersToGroup = useCallback((groupId: string, userIds: string[]) => {
+    const group = store.getGroupById(groupId);
+    if (!group) return;
+    const existingIds = new Set(group.members.map(member => member.userId));
+    const newMembers = userIds
+      .filter(userId => !existingIds.has(userId))
+      .map(userId => ({
+        userId,
+        role: 'member' as const,
+        permissions: buildPermissions('member'),
+        joinedAt: Date.now(),
+      }));
+    if (newMembers.length === 0) return;
+    const nextMembers = [...group.members, ...newMembers];
+    store.updateGroup(groupId, { members: nextMembers });
+    syncGroupChatParticipants(groupId, nextMembers.map(member => member.userId));
+    refreshGroups();
+    refreshChats();
+  }, [refreshChats, refreshGroups]);
 
   // Communities
   const createCommunity = useCallback((name: string, icon: string, description: string, options?: { roleLabels?: Partial<RoleLabels>; adminsOnlyMessages?: boolean; memberIds?: string[] }) => {
@@ -1646,15 +1680,52 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [refreshGroups]);
 
   // Contacts
-  const addContact = useCallback((name: string, username: string): boolean => {
+  const addContact = useCallback(async (name: string, username: string): Promise<{ ok: boolean; message?: string; userId?: string }> => {
     const user = store.getUsers().find(u => u.username === username);
-    if (!user) return false;
+    if (!user || !currentUser) return { ok: false, message: 'User not found.' };
     const existing = store.getContacts().find(c => c.userId === user.id);
-    if (existing) return false;
+    if (existing) return { ok: true, userId: user.id };
+
+    if (backendModeRef.current) {
+      try {
+        const payload = await addContactOnApi({ ownerUserId: currentUser.id, targetUserId: user.id });
+        store.addContact(payload.contact);
+        if (!store.getChatById(payload.chat.id)) {
+          store.addChat(payload.chat);
+        }
+        refreshContacts();
+        refreshChats();
+        return { ok: true, userId: user.id };
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : 'Could not add contact.' };
+      }
+    }
+
     store.addContact({ id: store.genId(), name, username, userId: user.id, addedAt: Date.now() });
     refreshContacts();
-    return true;
-  }, [refreshContacts]);
+    const existingChat = store.getChats().find(c =>
+      c.type === 'dm' && c.participants.includes(user.id) && c.participants.includes(currentUser.id)
+    );
+    if (!existingChat) {
+      store.addChat({
+        id: `chat-dm-${store.genId()}`,
+        type: 'dm',
+        name: user.name,
+        avatar: user.avatar,
+        participants: [currentUser.id, user.id],
+        lastMessage: '',
+        lastTime: Date.now(),
+        unreadCount: 0,
+        pinned: false,
+        muted: false,
+        archived: false,
+        wallpaper: '',
+        disappearing: 'off',
+      });
+      refreshChats();
+    }
+    return { ok: true, userId: user.id };
+  }, [currentUser, refreshContacts, refreshChats]);
 
   const saveCallShortcut = useCallback((label: string, phoneNumber: string) => {
     const normalized = phoneNumber.trim();
@@ -1935,7 +2006,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     theme, toggleTheme,
     chats, activeChat, setActiveChat, refreshChats,
     messages, sendMessage, editMessage, deleteMessage, deleteMessageForEveryone, forwardMessage, toggleStar, refreshMessages,
-    groups, createGroup, updateGroup, leaveGroup, kickMember, refreshGroups,
+    groups, createGroup, updateGroup, leaveGroup, kickMember, addMembersToGroup, refreshGroups,
     communities, createCommunity, deleteCommunity, addChannelToCommunity, addGroupToCommunity,
     removeGroupFromCommunity, createCommunityGroup, addMemberToCommunity, removeMemberFromCommunity,
     updateCommunityRole, updateCommunityRoleLabels, toggleCommunityAdminsOnlyMessages,
