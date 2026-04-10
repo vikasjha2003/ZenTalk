@@ -158,7 +158,7 @@ export const getSettings = (): ZenSettings => get(KEYS.SETTINGS, {
   theme: 'system',
   notifications: true,
   systemNotifications: false,
-  aiEnabled: false,
+  aiEnabled: true,
   language: 'en',
   lastSeenPrivacy: 'everyone',
   profilePhotoPrivacy: 'everyone',

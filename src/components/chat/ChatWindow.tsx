@@ -2,7 +2,6 @@ import { useState, useRef, useEffect } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import { buildBackendUrl } from '@/lib/backend-url';
 import type { ZenMessage } from '@/lib/zentalk-types';
-import * as store from '@/lib/zentalk-store';
 import MessageBubble from './MessageBubble';
 import ChatInput from './ChatInput';
 import ChatHeader from './ChatHeader';
@@ -129,14 +128,8 @@ useEffect(() => {
   socket.on("group-message", (data) => {
     console.log("📩 Group message received:", data);
 
-    if (activeChat && data.groupId === activeChat.groupId) {
-      const chatId = activeChat.id;
-      const normalizedMessage = { ...data.message, chatId };
-      const currentMessages = store.getMessages(chatId);
-      if (!currentMessages.some(message => message.id === normalizedMessage.id)) {
-        store.setMessages(chatId, [...currentMessages, normalizedMessage]);
-      }
-      setMessages(store.getMessages(chatId));
+    if (data.groupId === activeChat?.groupId) {
+      setMessages((prev) => [...prev, data.message]);
     }
   });
 
@@ -153,12 +146,7 @@ useEffect(() => {
     const data = await res.json();
 
     if (data.ok) {
-      const normalizedMessages = data.messages.map((message: ZenMessage) => ({
-        ...message,
-        chatId: activeChat.id,
-      }));
-      store.setMessages(activeChat.id, normalizedMessages);
-      setMessages(normalizedMessages);
+      setMessages(data.messages);
     }
   };
 

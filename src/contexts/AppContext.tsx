@@ -441,19 +441,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }
           return;
         } catch {
-          store.clearSession();
+          // Fall back to local mock data below when backend bootstrap is unavailable.
+        }
+      }
+
+      if (!backendModeRef.current) {
+  store.initMockData();
+}
+      const existingUsers = store.getUsers();
+      const renamedDemoUser = existingUsers.find(user => user.id === 'user-demo' && user.name === 'You (Demo)');
+      if (renamedDemoUser) {
+        store.updateUser('user-demo', { name: 'You' });
+      }
+
+      if (session) {
+        const user = store.getUserById(session.userId);
+        if (user && !cancelled) {
+          setCurrentUser(user);
+          store.updateUser(user.id, { status: 'online', lastSeen: Date.now() });
         }
       }
 
       if (!cancelled) {
-        setCurrentUser(null);
-        setAllUsers([]);
-        setChats([]);
-        setGroups([]);
-        setCommunities([]);
-        setContacts([]);
-        setMessages([]);
-        setBackendMode(true);
+        setAllUsers(store.getUsers());
+        setBackendMode(false);
       }
     };
 
@@ -528,15 +539,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [activeChat, pruneExpiredMessages]);
 
   useEffect(() => {
-    if (currentUser && !backendMode) {
-      refreshChats();
-      refreshGroups();
-      refreshCommunities();
-      refreshContacts();
-      refreshCallShortcuts();
-      setAllUsers(store.getUsers());
-    }
-  }, [currentUser, backendMode, refreshChats, refreshGroups, refreshCommunities, refreshContacts, refreshCallShortcuts]);
+  if (currentUser && !backendMode) {
+    refreshChats();
+    refreshGroups();
+    refreshCommunities();
+    refreshContacts();
+    refreshCallShortcuts();
+    setAllUsers(store.getUsers());
+  }
+}, [currentUser, backendMode, refreshChats, refreshGroups, refreshCommunities, refreshContacts, refreshCallShortcuts]);
   useEffect(() => {
     if (activeChat) setMessages(store.getMessages(activeChat.id));
   }, [activeChat]);
@@ -1199,6 +1210,49 @@ socket.connect(); // ✅ ONLY THIS
     };
   }, [addToast, createManagedPeerConnection, createOfferForParticipant, currentUser, finishCallLocally, flushQueuedIceCandidates, syncPrimaryRemoteStream, updateRemoteParticipantState]);
 
+  // Simulate incoming messages
+  useEffect(() => {
+    if (!currentUser || backendMode) return;
+    const interval = setInterval(() => {
+      const chatsData = store.getChats();
+      const otherChats = chatsData.filter(c => c.id !== activeChat?.id && !c.muted);
+      if (otherChats.length === 0 || Math.random() > 0.15) return;
+      const randomChat = otherChats[Math.floor(Math.random() * otherChats.length)];
+      const otherParticipants = randomChat.participants.filter(id => id !== currentUser.id);
+      if (otherParticipants.length === 0) return;
+      const senderId = otherParticipants[Math.floor(Math.random() * otherParticipants.length)];
+      const sender = store.getUserById(senderId);
+      if (!sender) return;
+      const simulatedMessages = [
+        'Hey, how\'s it going?', 'Did you see the latest update?', 'Can we sync up later?',
+        'Just pushed the changes 🚀', 'Looks good to me!', 'Let me check and get back to you',
+        'Great work on that! 👏', 'Meeting in 10 mins?', 'Check your email', 'On it! 💪',
+      ];
+      const text = simulatedMessages[Math.floor(Math.random() * simulatedMessages.length)];
+      const msg: ZenMessage = {
+        id: store.genId(), chatId: randomChat.id, senderId, text, type: 'text',
+        status: 'delivered', timestamp: Date.now(), forwarded: false, edited: false,
+        deletedFor: [], starred: false, reactions: {},
+      };
+      store.addMessage(msg);
+      store.updateChat(randomChat.id, {
+        lastMessage: text, lastTime: Date.now(),
+        unreadCount: (randomChat.unreadCount || 0) + 1,
+      });
+      setChats(store.getChats());
+      if (activeChat?.id === randomChat.id) setMessages(store.getMessages(randomChat.id));
+      addToast({
+        title: sender.name,
+        message: text,
+        avatar: sender.avatar,
+        chatId: randomChat.id,
+        kind: 'message',
+        accent: 'from-primary/20 to-primary/5',
+      });
+    }, 18000);
+    return () => clearInterval(interval);
+  }, [backendMode, currentUser, activeChat, addToast]);
+
   const simulateTyping = useCallback((chatId: string) => {
     setTypingChats(prev => new Set([...prev, chatId]));
     setTimeout(() => {
@@ -1416,14 +1470,7 @@ socket.connect(); // ✅ ONLY THIS
           setActiveChat(chat);
           setMessages(store.getMessages(chat.id));
         }).catch(error => {
-          addToast({
-            title: 'Message not sent',
-            message: error instanceof Error ? error.message : 'Unable to send the direct message.',
-            avatar: activeChat.avatar,
-            chatId: activeChat.id,
-            kind: 'system',
-            accent: 'from-destructive/20 to-destructive/5',
-          });
+          setCallError(error.message);
         });
         return;
       }
@@ -1438,36 +1485,55 @@ socket.connect(); // ✅ ONLY THIS
         mediaUrl,
         type: type as ZenMessage['type'],
       }).then(({ message }) => {
-        const chatId = activeChat.id;
-        const currentMessages = store.getMessages(chatId);
+        const currentMessages = store.getMessages(message.chatId);
         if (!currentMessages.some(existingMessage => existingMessage.id === message.id)) {
-          store.setMessages(chatId, [...currentMessages, { ...message, chatId }]);
+          store.setMessages(message.chatId, [...currentMessages, message]);
         }
-        store.updateChat(chatId, { lastMessage: text, lastTime: Date.now() });
+        store.updateChat(activeChat.id, { lastMessage: text, lastTime: Date.now() });
         setChats(store.getChats());
-        setMessages(store.getMessages(chatId));
+        setMessages(store.getMessages(activeChat.id));
       }).catch(error => {
-        addToast({
-          title: 'Message not sent',
-          message: error instanceof Error ? error.message : 'Unable to send the group message.',
-          avatar: activeChat.avatar,
-          chatId: activeChat.id,
-          kind: 'system',
-          accent: 'from-destructive/20 to-destructive/5',
-        });
+        setCallError(error.message);
       });
       return;
     }
 
-    addToast({
-      title: 'Message not sent',
-      message: 'Messaging is available only when the backend is connected.',
-      avatar: activeChat.avatar,
-      chatId: activeChat.id,
-      kind: 'system',
-      accent: 'from-destructive/20 to-destructive/5',
-    });
-  }, [addToast, currentUser, activeChat]);
+    const msg: ZenMessage = {
+      id: store.genId(), chatId: activeChat.id, senderId: currentUser.id,
+      text, type: type as ZenMessage['type'], mediaUrl, status: 'sending',
+      timestamp: Date.now(), replyTo, forwarded: false, edited: false,
+      deletedFor: [], starred: false, reactions: {},
+    };
+    store.addMessage(msg);
+    store.updateChat(activeChat.id, { lastMessage: text, lastTime: Date.now() });
+    setMessages(store.getMessages(activeChat.id));
+    setChats(store.getChats());
+    // Simulate status progression
+    setTimeout(() => { store.updateMessage(activeChat.id, msg.id, { status: 'sent' }); setMessages(store.getMessages(activeChat.id)); }, 500);
+    setTimeout(() => { store.updateMessage(activeChat.id, msg.id, { status: 'delivered' }); setMessages(store.getMessages(activeChat.id)); }, 1500);
+    setTimeout(() => { store.updateMessage(activeChat.id, msg.id, { status: 'read' }); setMessages(store.getMessages(activeChat.id)); }, 3000);
+    // Simulate reply
+    if (store.getSettings().aiEnabled) {
+      const otherParticipants = activeChat.participants.filter(id => id !== currentUser.id);
+      if (otherParticipants.length > 0) {
+        simulateTyping(activeChat.id);
+        setTimeout(() => {
+          const senderId = otherParticipants[Math.floor(Math.random() * otherParticipants.length)];
+          const replies = ['Got it! 👍', 'Sure thing!', 'Sounds good!', 'On it!', 'Thanks for the update', 'Will do!', '👋', 'Noted!', 'Perfect!', '🔥'];
+          const replyText = replies[Math.floor(Math.random() * replies.length)];
+          const reply: ZenMessage = {
+            id: store.genId(), chatId: activeChat.id, senderId, text: replyText, type: 'text',
+            status: 'delivered', timestamp: Date.now(), forwarded: false, edited: false,
+            deletedFor: [], starred: false, reactions: {},
+          };
+          store.addMessage(reply);
+          store.updateChat(activeChat.id, { lastMessage: replyText, lastTime: Date.now() });
+          setMessages(store.getMessages(activeChat.id));
+          setChats(store.getChats());
+        }, 3500 + Math.random() * 2000);
+      }
+    }
+  }, [currentUser, activeChat, simulateTyping]);
 
   const editMessage = useCallback((msgId: string, newText: string) => {
     if (!activeChat) return;
