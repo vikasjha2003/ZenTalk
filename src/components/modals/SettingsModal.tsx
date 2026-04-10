@@ -401,15 +401,15 @@ export default function SettingsModal() {
                 <ToggleRow
                   icon={<Bot className="w-4 h-4" />}
                   label="AI Auto-Replies"
-                  description="Simulate intelligent responses in conversations"
+                  description="Disabled for live messaging deployments"
                   checked={settings.aiEnabled}
                   onChange={v => updateSettings({ aiEnabled: v })}
                 />
                 <div className="p-4 rounded-xl bg-primary/5 border border-primary/20">
                   <p className="text-sm font-medium text-foreground mb-1">🤖 About AI Features</p>
                   <p className="text-xs text-muted-foreground">
-                    ZenTalk uses AI to simulate realistic conversations for demo purposes.
-                    When enabled, contacts will send automated replies to your messages.
+                    Live messaging now depends on the backend only.
+                    Demo-style auto replies are disabled in this deployment flow.
                   </p>
                 </div>
               </div>
