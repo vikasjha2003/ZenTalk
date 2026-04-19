@@ -80,8 +80,41 @@ export const deleteMessagesForChat = (chatId: string) => {
   set(KEYS.MESSAGES, next);
 };
 
+function normalizePermissions(role: UserRole, permissions?: Partial<MemberPermissions> | null): MemberPermissions {
+  return {
+    ...buildPermissions(role),
+    ...(permissions ?? {}),
+  };
+}
+
+function normalizeGroupMembers(members: ZenGroup['members'] = []): ZenGroup['members'] {
+  return members.map(member => {
+    const role = member.role ?? 'member';
+    return {
+      ...member,
+      role,
+      permissions: normalizePermissions(role, member.permissions),
+      joinedAt: member.joinedAt ?? Date.now(),
+    };
+  });
+}
+
+function normalizeCommunityMembers(members: ZenCommunity['members'] = []): ZenCommunity['members'] {
+  return members.map(member => {
+    const role = member.role ?? 'member';
+    return {
+      ...member,
+      role,
+      permissions: normalizePermissions(role, member.permissions),
+    };
+  });
+}
+
 // Groups
-export const getGroups = (): ZenGroup[] => get(KEYS.GROUPS, []);
+export const getGroups = (): ZenGroup[] => get(KEYS.GROUPS, []).map((group: ZenGroup) => ({
+  ...group,
+  members: normalizeGroupMembers(group.members),
+}));
 export const setGroups = (g: ZenGroup[]) => set(KEYS.GROUPS, g);
 export const getGroupById = (id: string) => getGroups().find(g => g.id === id);
 export const addGroup = (g: ZenGroup) => setGroups([...getGroups(), g]);
@@ -94,7 +127,7 @@ export const getCommunities = (): ZenCommunity[] => get(KEYS.COMMUNITIES, []).ma
   ...community,
   channels: community.channels ?? [],
   linkedGroupIds: community.linkedGroupIds ?? [],
-  members: community.members ?? [],
+  members: normalizeCommunityMembers(community.members),
   roleLabels: {
     ...DEFAULT_ROLE_LABELS,
     ...(community.roleLabels ?? {}),

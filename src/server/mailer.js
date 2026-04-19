@@ -70,6 +70,14 @@ function buildFromAddress() {
   );
 }
 
+function getBackendPublicUrl() {
+  return (process.env.BACKEND_PUBLIC_URL || "https://zentalk-backend.onrender.com").replace(/\/$/, "");
+}
+
+function getFrontendPublicUrl() {
+  return (process.env.FRONTEND_PUBLIC_URL || "http://localhost:5173").replace(/\/$/, "");
+}
+
 export async function sendLoginAlert({ to, name, username }) {
   const transporter = await getMailer();
   if (!transporter) return { ok: false, reason: "SMTP is not configured." };
@@ -155,9 +163,9 @@ export const sendExpiryMail = async (email, group) => {
 
       <p>Take action:</p>
 
-      <a href="http://localhost:3001/extend/${group._id}">Extend</a><br/><br/>
-      <a href="http://localhost:3001/delete/${group._id}">Delete</a><br/><br/>
-      <a href="http://localhost:3001/retrieve/${group._id}">Delete & Retrieve</a>
+      <a href="${getBackendPublicUrl()}/extend/${group._id}">Extend</a><br/><br/>
+      <a href="${getBackendPublicUrl()}/delete/${group._id}">Delete</a><br/><br/>
+      <a href="${getBackendPublicUrl()}/retrieve/${group._id}">Delete & Retrieve</a>
     `
   });
 
@@ -168,7 +176,7 @@ export async function sendPasswordResetEmail({ to, name, resetToken }) {
   const transporter = await getMailer();
   if (!transporter) return { ok: false, reason: "SMTP is not configured." };
 
-  const resetUrl = `http://localhost:5173/reset/${resetToken}`;
+  const resetUrl = `${getFrontendPublicUrl()}/reset/${resetToken}`;
 
   await transporter.sendMail({
     from: buildFromAddress(),

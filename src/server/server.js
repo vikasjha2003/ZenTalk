@@ -17,7 +17,10 @@ const app = express();
 const httpServer = createServer(app);
 
 const io = new Server(httpServer, {
-  cors: { origin: '*' },
+  cors: {
+    origin: "https://zen-talk-zeta.vercel.app",
+    methods: ["GET", "POST"]
+  },
 });
 
 app.use(express.json({ limit: '10mb' }));
@@ -1100,6 +1103,11 @@ io.on('connection', socket => {
           userId: payload.fromUserId,
         });
       }
+    });
+
+    emitToUser(room.callerId, 'call-accepted', {
+      callId: payload.callId,
+      userId: payload.fromUserId,
     });
 
     await Call.findOneAndUpdate(

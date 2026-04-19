@@ -1,3 +1,4 @@
 import { io } from "socket.io-client";
+import { resolveSignalingBase } from "./backend-url";
 
-export const socket = io("http://localhost:3001"); // your port
+export const socket = io(resolveSignalingBase());

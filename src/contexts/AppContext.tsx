@@ -19,6 +19,7 @@ import {
   updateProfileOnApi,
   verifySignupOtpWithApi,
 } from '@/lib/api-client';
+import { resolveSignalingBase } from '@/lib/backend-url';
 import { createPeerConnection, getLocalStream, setAudioEnabled, setVideoEnabled, stopStream } from '@/lib/webrtc';
 
 interface Toast {
@@ -85,27 +86,12 @@ interface ParticipantLeftPayload {
   userId: string;
 }
 
-function resolveSignalingServerUrl() {
-  const configured = import.meta.env.VITE_SIGNALING_SERVER_URL;
-  if (typeof window === 'undefined') return configured ?? 'http://localhost:3001';
-
-  const fallback = `${window.location.protocol}//${window.location.hostname}:3001`;
-  if (!configured) return fallback;
-
-  try {
-    const url = new URL(configured);
-    if ((url.hostname === 'localhost' || url.hostname === '127.0.0.1') && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-      url.hostname = window.location.hostname;
-      return url.toString().replace(/\/$/, '');
-    }
-  } catch {
-    return fallback;
-  }
-
-  return configured;
+interface CallAcceptedPayload {
+  callId: string;
+  userId: string;
 }
 
-const SIGNALING_SERVER_URL = resolveSignalingServerUrl();
+const SIGNALING_SERVER_URL = resolveSignalingBase();
 const APP_NOTIFICATION_ICON = '/favicon.ico';
 
 const createDefaultCallControls = (type: CallType = 'audio'): ZenCallControls => ({
@@ -832,18 +818,43 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
 
     peerConnection.ontrack = (event) => {
-      const stream = remoteStreamsRef.current.get(remoteUserId);
-      if (!stream) return;
-      event.streams[0].getTracks().forEach(track => {
-        const exists = stream.getTracks().some(existingTrack => existingTrack.id === track.id);
-        if (!exists) stream.addTrack(track);
-      });
-      updateRemoteParticipantState(remoteUserId, {
-        stream: new MediaStream(stream.getTracks()),
-        videoEnabled: stream.getVideoTracks().some(track => track.enabled),
-      });
-      syncRemoteParticipants();
-    };
+  let stream = remoteStreamsRef.current.get(remoteUserId);
+
+  if (!stream) {
+    stream = new MediaStream();
+    remoteStreamsRef.current.set(remoteUserId, stream);
+  }
+
+  event.streams[0].getTracks().forEach(track => {
+    const exists = stream.getTracks().some(existingTrack => existingTrack.id === track.id);
+    if (!exists) stream.addTrack(track);
+  });
+
+  updateRemoteParticipantState(remoteUserId, {
+    stream: new MediaStream(stream.getTracks()),
+    videoEnabled: stream.getVideoTracks().some(track => track.enabled),
+  });
+
+  // ✅ AUDIO PLAY FIX
+  const audio = document.getElementById(`audio-${remoteUserId}`) as HTMLAudioElement | null;
+  if (audio) {
+    audio.srcObject = stream; // ✅ FIXED
+    audio.muted = false;
+    audio.play().catch(() => {
+  console.log("Autoplay blocked, retrying...");
+
+  // 🔥 force play on user interaction
+  const unlock = () => {
+    audio.play().catch(() => {});
+    document.removeEventListener("click", unlock);
+  };
+
+  document.addEventListener("click", unlock);
+});
+  }
+
+  syncRemoteParticipants();
+};
 
     peerConnection.onconnectionstatechange = () => {
       const nextState = peerConnection.connectionState || 'connecting';
@@ -910,15 +921,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!currentUser) return undefined;
 
     const socket = io(SIGNALING_SERVER_URL, {
-      transports: ['websocket', 'polling'],
-      autoConnect: false,
-    });
+  transports: ['websocket'], // ✅ FIXED
+  autoConnect: false,
+});
+
+socketRef.current = socket;
+
+const registerCurrentUser = () => {
+  socket.emit('register-user', { userId: currentUser.id });
+};
+
+socket.on('connect', registerCurrentUser);
+
+socket.connect(); // ✅ ONLY THIS
 
     socketRef.current = socket;
 
-    const registerCurrentUser = () => {
-      socket.emit('register-user', { userId: currentUser.id });
-    };
+    
 
     const handleIncomingCall = (payload: IncomingCallPayload) => {
       const currentActiveCall = activeCallRef.current;
@@ -967,6 +986,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await createOfferForParticipant(payload.userId, payload.callId);
     };
 
+    const handleCallAccepted = (payload: CallAcceptedPayload) => {
+      const call = activeCallRef.current;
+      const user = currentUserRef.current;
+      if (!call || !user || call.id !== payload.callId || payload.userId === user.id) return;
+
+      setActiveCall(prev => prev
+        ? {
+            ...prev,
+            status: 'active',
+            startedAt: prev.startedAt ?? Date.now(),
+          }
+        : prev);
+      setCallControls(prev => ({
+        ...prev,
+        connectionState: prev.connectionState === 'idle' ? 'connecting' : prev.connectionState,
+      }));
+    };
+
     const handleWebRtcOffer = async (payload: WebRtcOfferPayload) => {
       const call = activeCallRef.current ?? incomingCallRef.current;
       if (!call || call.id !== payload.callId) return;
@@ -991,6 +1028,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!peerConnection) return;
       await peerConnection.setRemoteDescription(new RTCSessionDescription(payload.answer));
       await flushQueuedIceCandidates(payload.fromUserId);
+      setActiveCall(prev => prev
+        ? {
+            ...prev,
+            status: 'active',
+            startedAt: prev.startedAt ?? Date.now(),
+          }
+        : prev);
     };
 
     const handleRemoteIceCandidate = async (payload: IceCandidatePayload) => {
@@ -1131,6 +1175,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     socket.on('connect', registerCurrentUser);
     socket.on('incoming-call', handleIncomingCall);
     socket.on('participant-joined', handleParticipantJoined);
+    socket.on('call-accepted', handleCallAccepted);
     socket.on('webrtc-offer', handleWebRtcOffer);
     socket.on('webrtc-answer', handleWebRtcAnswer);
     socket.on('ice-candidate', handleRemoteIceCandidate);
@@ -1143,12 +1188,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     socket.on('chat-updated', handleChatUpdated);
     socket.on('chat-cleared', handleChatCleared);
     socket.connect();
-    registerCurrentUser();
 
     return () => {
       socket.off('connect', registerCurrentUser);
       socket.off('incoming-call', handleIncomingCall);
       socket.off('participant-joined', handleParticipantJoined);
+      socket.off('call-accepted', handleCallAccepted);
       socket.off('webrtc-offer', handleWebRtcOffer);
       socket.off('webrtc-answer', handleWebRtcAnswer);
       socket.off('ice-candidate', handleRemoteIceCandidate);

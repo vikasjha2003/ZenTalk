@@ -24,8 +24,11 @@ function RemoteMedia({
   useEffect(() => {
     if (mediaRef.current) {
       mediaRef.current.srcObject = stream;
+      if (stream) {
+        void mediaRef.current.play?.().catch(() => {});
+      }
     }
-  }, [stream]);
+  }, [stream, muted]);
 
   if (!isVideo) {
     return <audio ref={mediaRef as React.RefObject<HTMLAudioElement>} autoPlay playsInline muted={muted} />;
@@ -70,6 +73,9 @@ export default function CallOverlay() {
   useEffect(() => {
     if (localVideoRef.current) {
       localVideoRef.current.srcObject = localCallStream;
+      if (localCallStream) {
+        void localVideoRef.current.play?.().catch(() => {});
+      }
     }
   }, [localCallStream]);
 

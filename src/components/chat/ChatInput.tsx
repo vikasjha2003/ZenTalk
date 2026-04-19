@@ -39,17 +39,17 @@ export default function ChatInput({ replyTo, onCancelReply, editingMsg, onCancel
     if (activeChat.type === 'group') {
       const group = groups.find(item => item.id === activeChat.groupId);
       const member = group?.members.find(item => item.userId === currentUser.id);
-      return member?.permissions.viewMessages !== false && member?.permissions.sendMessages !== false;
+      return member?.permissions?.viewMessages !== false && member?.permissions?.sendMessages !== false;
     }
     if (activeChat.type !== 'channel') return true;
     const community = communities.find(c => c.id === activeChat.communityId);
     if (!community) return true;
     const member = community.members.find(m => m.userId === currentUser.id);
-    if (!member || member.permissions.viewMessages === false) return false;
+    if (!member || member.permissions?.viewMessages === false) return false;
     const channel = community.channels.find(ch => ch.id === activeChat.channelId);
     const isElevatedRole = member.role === 'owner' || member.role === 'admin' || member.role === 'moderator';
-    if (community.adminsOnlyMessages || channel?.isBroadcast) return isElevatedRole && member.permissions.sendMessages;
-    return member.permissions.sendMessages;
+    if (community.adminsOnlyMessages || channel?.isBroadcast) return isElevatedRole && member.permissions?.sendMessages !== false;
+    return member.permissions?.sendMessages !== false;
   })();
 
   const handleSend = useCallback(() => {

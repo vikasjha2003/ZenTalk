@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useApp } from '@/contexts/AppContext';
+import { buildBackendUrl } from '@/lib/backend-url';
 import type { ZenMessage } from '@/lib/zentalk-types';
 import MessageBubble from './MessageBubble';
 import ChatInput from './ChatInput';
@@ -141,9 +142,7 @@ useEffect(() => {
   if (activeChat?.type !== 'group' || !activeChat.groupId) return;
 
   const loadMessages = async () => {
-    const res = await fetch(
-      `http://localhost:3001/api/messages/group/${activeChat.groupId}`
-    );
+    const res = await fetch(buildBackendUrl(`/api/messages/group/${activeChat.groupId}`));
     const data = await res.json();
 
     if (data.ok) {

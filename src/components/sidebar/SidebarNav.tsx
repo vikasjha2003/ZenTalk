@@ -9,6 +9,7 @@ import {
 import type { ZenChat } from '@/lib/zentalk-types';
 import { useEffect } from 'react';
 import * as store from '@/lib/zentalk-store';
+import { buildBackendUrl } from '@/lib/backend-url';
 import UserAvatar from '@/components/ui/user-avatar';
 
 type CallLog = {
@@ -132,7 +133,7 @@ export default function SidebarNav() {
     const fetchCallLogs = async () => {
       if (!currentUser) return;
 
-      const res = await fetch(`http://localhost:3001/api/calls/${currentUser.id}`);
+      const res = await fetch(buildBackendUrl(`/api/calls/${currentUser.id}`));
       const data = await res.json();
 
       if (data.ok) {

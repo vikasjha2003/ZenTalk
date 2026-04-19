@@ -1,9 +1,40 @@
 import type { CallType } from '@/lib/zentalk-types';
 
+function parseIceServerUrls(value: string | undefined): string[] {
+  return String(value || '')
+    .split(',')
+    .map(item => item.trim())
+    .filter(Boolean);
+}
+
+function buildRtcConfiguration(): RTCConfiguration {
+  const stunUrls = parseIceServerUrls(import.meta.env.VITE_STUN_SERVERS)
+    .concat([
+      'stun:stun.l.google.com:19302',
+      'stun:stun1.l.google.com:19302',
+      'stun:stun2.l.google.com:19302',
+    ]);
+
+  const uniqueStunUrls = Array.from(new Set(stunUrls));
+  const iceServers: RTCIceServer[] = uniqueStunUrls.length > 0 ? [{ urls: uniqueStunUrls }] : [];
+
+  const turnUrls = parseIceServerUrls(import.meta.env.VITE_TURN_SERVERS);
+  if (turnUrls.length > 0) {
+    iceServers.push({
+      urls: turnUrls,
+      username: import.meta.env.VITE_TURN_USERNAME,
+      credential: import.meta.env.VITE_TURN_CREDENTIAL,
+    });
+  }
+
+  return {
+    iceServers,
+    iceTransportPolicy: 'all',
+  };
+}
+
 const RTC_CONFIGURATION: RTCConfiguration = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-  ],
+  ...buildRtcConfiguration(),
 };
 
 export function createPeerConnection(): RTCPeerConnection {
